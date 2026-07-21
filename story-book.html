@@ -580,6 +580,23 @@
       padding: 1px 7px;
     }
 
+    /* Placeholder shown under an empty chapter's header; also a drop target for pages. */
+    .page-group-empty {
+      margin: 2px 0 2px 14px;
+      padding: 8px 10px;
+      border: 1px dashed rgba(148, 163, 184, 0.35);
+      border-radius: 8px;
+      font-size: 0.76rem;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    .page-group-empty.drag-over {
+      border-color: rgba(249, 115, 22, 0.75);
+      color: #e2e8f0;
+      box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.45) inset;
+    }
+
     /* Indent groups' pages so the run reads as a block under its header. */
     .page-item.grouped {
       margin-left: 14px;
@@ -1525,7 +1542,7 @@
             <span class="sr-only">Toggle Full Screen Mode</span>
           </button>
           <button type="button" class="dot-btn help-dot hidden" id="fullScreenHelpBtn" aria-label="Full screen shortcuts"
-                  title="F toggle full screen · Esc exit · PgUp/PgDn or ← → change page · Ctrl +/− zoom">?</button>
+                  title="F toggle full screen · Esc exit · PgUp/PgDn change page · Arrows pan a zoomed page, or change page when it fits · Ctrl +/− zoom">?</button>
         </div>
       </div>
     </header>
@@ -1542,7 +1559,7 @@
           </div>
           <div class="page-create-row">
             <button type="button" class="primary" id="addPageBtn" title="Add Page">+ Page</button>
-            <button type="button" class="ghost" id="newGroupBtn" title="Group the current page">+ Group</button>
+            <button type="button" class="ghost" id="newGroupBtn" title="Create an empty chapter, then drag pages into it">+ Chapter</button>
           </div>
           <div class="page-action-row">
             <button class="icon-btn" id="duplicatePageBtn" title="Duplicate Page" aria-label="Duplicate Page">
@@ -1873,7 +1890,7 @@
         fileHandle: null,
         // Shared by the page list rows and the canvas title, which is why it cannot live in
         // renderPageList's closure: the title is not rebuilt per render.
-        pageDragState: { pageIndex: null, runIndex: null },
+        pageDragState: { pageIndex: null, pageId: null, runIndex: null },
         // Which properties sections are open. Session-only view state: collapsing a section
         // is not a document edit, so it never marks the book dirty.
         propSections: { element: true, page: true, document: false, assets: false },
@@ -2091,7 +2108,10 @@
             imagePath: '',
             dropMode: 'reference',
             pageOrder: [pageId],
-            groups: {},
+            // Authoritative order + grouping (mixed model): a list of page-refs and group-refs,
+            // where a group-ref is { type:'group', id, name, collapsed, pages:[...] } and may be
+            // empty. pageOrder above and each page.groupId are derived projections of this.
+            structure: [{ type: 'page', id: pageId }],
             createdAt: nowIso(),
             updatedAt: nowIso()
           },
@@ -2102,7 +2122,6 @@
               width: 1200,
               height: 800,
               imagePath: '',
-              groupId: null,
               background: { type: 'solid', color: '#ffffff' },
               elementOrder: [elementId]
             }
@@ -2370,13 +2389,24 @@
         applyElementFrameStyles(node, element);
       }
 
+      // The page a document opens on. A saved id that no longer names a page in the current
+      // order is discarded rather than honoured, since a blank canvas is the visible result.
+      function resolveStartPageId(doc) {
+        const saved = doc.appState?.currentPageId;
+        if (saved && doc.pages[saved] && doc.storyBook.pageOrder.includes(saved)) return saved;
+        return doc.storyBook.pageOrder[0] || Object.keys(doc.pages)[0] || null;
+      }
+
       function loadDocument(nextDoc) {
         app.document = nextDoc;
         app.assetIssues = {};
         // A different document must never inherit the previous file's handle, or New Book
         // followed by Save would overwrite the file that was open before it.
         app.fileHandle = null;
-        app.currentPageId = nextDoc.appState?.currentPageId || nextDoc.storyBook.pageOrder[0] || Object.keys(nextDoc.pages)[0] || null;
+        // Guarantee pageOrder + page.groupId reflect the authoritative structure, for a blank
+        // document (which is not run through normalizePayload) as much as a loaded file.
+        syncDerivedFromStructure(app.document);
+        app.currentPageId = resolveStartPageId(nextDoc);
         app.selectedElementId = null;
         app.mode = nextDoc.appState?.mode || 'edit';
         app.zoom = Number(nextDoc.appState?.zoom) || 1;
@@ -2904,6 +2934,18 @@
           if (!referencedGroupIds.has(groupId)) delete next.storyBook.groups[groupId];
         }
 
+        // Structure is authoritative. A file that carries one is validated/repaired; a file
+        // that predates it is migrated from the legacy pageOrder/groupId/groups. Either way,
+        // pageOrder and every page.groupId are then re-derived from the structure, and the old
+        // groups map is dropped since group metadata now lives inside the structure.
+        if (Array.isArray(next.storyBook.structure) && next.storyBook.structure.length) {
+          normalizeStructure(next);
+        } else {
+          rebuildStructureFromLegacy(next);
+        }
+        delete next.storyBook.groups;
+        syncDerivedFromStructure(next);
+
         for (const [assetId, asset] of Object.entries(next.assets)) {
           if (!asset || typeof asset !== 'object') {
             delete next.assets[assetId];
@@ -2953,8 +2995,10 @@
         }
 
         next.appState = next.appState || {};
-        if (!next.appState.currentPageId && next.storyBook.pageOrder.length) {
-          next.appState.currentPageId = next.storyBook.pageOrder[0];
+        // A stored page id is not trusted: it may name a page deleted after the file was saved,
+        // in which case it has to be corrected here rather than opening the book on nothing.
+        if (!next.pages[next.appState.currentPageId] || !next.storyBook.pageOrder.includes(next.appState.currentPageId)) {
+          next.appState.currentPageId = next.storyBook.pageOrder[0] || null;
         }
         if (!next.appState.zoom) next.appState.zoom = 1;
         if (!next.appState.mode) next.appState.mode = 'edit';
@@ -3038,7 +3082,11 @@
       // Accepts the exact HTML about to be written so the check covers the bytes being saved
       // rather than a second, separately generated export.
       function runRoundTripValidation(html) {
-        const source = normalizeForValidation(buildPersistedSnapshot());
+        // The reopened side always passes through normalizePayload (that is what loading a file
+        // does), so the source must too, or benign defaults it fills in — e.g. rotation: 0 on a
+        // freshly created element — read as a round-trip failure. This is why a brand-new
+        // document failed while an opened one, already normalized on load, did not.
+        const source = normalizeForValidation(normalizePayload(buildPersistedSnapshot()));
         const exportedHtml = typeof html === 'string' ? html : exportCurrentHtml();
         const parsed = parseHtmlDocument(exportedHtml);
         if (!parsed) {
@@ -3254,22 +3302,38 @@
         );
       }
 
+      // The book title follows the file name it was saved to. Applied before the document is
+      // serialized, so the written file and the in-memory document agree — setting it afterwards
+      // would leave the document reading dirty the moment it was saved. Updates the tab (via the
+      // title) and the two inspector spots directly, avoiding a full re-render inside save.
+      function applyBookTitleFromFileName(fileName) {
+        const base = String(fileName || '').replace(/\.html?$/i, '').trim();
+        if (!base || !app.document?.storyBook) return;
+        if (app.document.storyBook.title === base) return;
+        app.document.storyBook.title = base;
+        if (els.bookTitle) els.bookTitle.value = base;
+        if (els.documentSectionContext) els.documentSectionContext.textContent = base;
+      }
+
       async function saveBook(options = {}) {
         const { forcePicker = false } = options;
-        const html = exportCurrentHtml();
 
         let handle = forcePicker ? null : app.fileHandle;
-        if (!handle) {
-          if (!hasFileSystemAccess()) {
-            // Firefox and Safari: the original download path is still the only option.
-            if (!confirmSaveDespiteValidation(html)) {
-              els.statusText.textContent = 'Save canceled after validation warning';
-              return;
-            }
-            downloadFile(getSuggestedFileName(), html);
-            markDocumentSaved('Downloaded a copy (this browser cannot save in place)');
+
+        if (!handle && !hasFileSystemAccess()) {
+          // Firefox and Safari: the download path is the only option, and it offers no
+          // user-chosen file name to sync the title to, so the title is left as it is.
+          const html = exportCurrentHtml();
+          if (!confirmSaveDespiteValidation(html)) {
+            els.statusText.textContent = 'Save canceled after validation warning';
             return;
           }
+          downloadFile(getSuggestedFileName(), html);
+          markDocumentSaved('Downloaded a copy (this browser cannot save in place)');
+          return;
+        }
+
+        if (!handle) {
           try {
             handle = await window.showSaveFilePicker({
               suggestedName: getSuggestedFileName(),
@@ -3295,6 +3359,9 @@
             els.statusText.textContent = 'Write permission denied. Use Save As to choose another file.';
             return;
           }
+          // Title follows the file name, then export, so the change is in the written bytes.
+          applyBookTitleFromFileName(handle.name);
+          const html = exportCurrentHtml();
           // Validated after the picker and the permission prompt, never before: confirm()
           // below would otherwise consume the user activation those calls depend on.
           if (!confirmSaveDespiteValidation(html)) {
@@ -3310,12 +3377,16 @@
             return;
           }
           console.error(error);
-          downloadFile(getSuggestedFileName(), html);
+          downloadFile(getSuggestedFileName(), exportCurrentHtml());
           markDocumentSaved('Could not write to the file; downloaded a copy instead');
         }
       }
 
       async function openBookWithPicker() {
+        // Matches the New Book guard so opening a file cannot silently discard unsaved work.
+        // A synchronous confirm keeps the click's user activation, which the picker requires;
+        // an awaited async dialog here would consume it and make showOpenFilePicker throw.
+        if (app.dirty && !confirm('Discard unsaved changes and open another book?')) return;
         if (!hasFileOpenPicker()) {
           els.openFileInput.click();
           return;
@@ -3977,113 +4048,307 @@
         renderAll();
       }
 
+      // ---- Structure is authoritative for order and grouping. groups/getPageGroup derive from
+      // it, and pageOrder + page.groupId are one-way projections written only by
+      // syncDerivedFromStructure. No other code writes those two fields. ----
+
+      function getStructure() {
+        const storyBook = app.document && app.document.storyBook;
+        if (!storyBook) return [];
+        if (!Array.isArray(storyBook.structure)) storyBook.structure = [];
+        return storyBook.structure;
+      }
+
+      // A {id: group-item} view. The values are the actual structure items, so setting
+      // group.name / group.collapsed mutates the authoritative structure directly.
       function getPageGroups() {
-        return app.document?.storyBook?.groups || {};
+        const map = {};
+        for (const item of getStructure()) {
+          if (item && item.type === 'group') map[item.id] = item;
+        }
+        return map;
       }
 
       function getPageGroup(groupId) {
         if (!groupId) return null;
-        return getPageGroups()[groupId] || null;
+        for (const item of getStructure()) {
+          if (item && item.type === 'group' && item.id === groupId) return item;
+        }
+        return null;
       }
 
-      // Walks pageOrder and returns contiguous runs of pages sharing a groupId. Runs are the
-      // unit of group ordering: a group's position in the book IS its run's position, so there
-      // is no separate group order to keep in sync.
-      function getPageRuns() {
-        const pageOrder = app.document?.storyBook?.pageOrder || [];
-        const runs = [];
-        let current = null;
-        for (let i = 0; i < pageOrder.length; i += 1) {
-          const pageId = pageOrder[i];
-          const page = app.document.pages[pageId];
+      // Locate a page within the structure: top-level page-ref, or inside a group.
+      function findPageLocation(pageId) {
+        const structure = getStructure();
+        for (let i = 0; i < structure.length; i += 1) {
+          const item = structure[i];
+          if (item.type === 'page' && item.id === pageId) return { topIndex: i, group: null };
+          if (item.type === 'group') {
+            const within = item.pages.indexOf(pageId);
+            if (within >= 0) return { topIndex: i, group: item, within };
+          }
+        }
+        return null;
+      }
+
+      function findGroupIndex(groupId) {
+        return getStructure().findIndex((item) => item.type === 'group' && item.id === groupId);
+      }
+
+      // Remove a page-ref from wherever it sits. Returns its former location or null.
+      function structRemovePage(pageId) {
+        const loc = findPageLocation(pageId);
+        if (!loc) return null;
+        if (loc.group) loc.group.pages.splice(loc.within, 1);
+        else getStructure().splice(loc.topIndex, 1);
+        return loc;
+      }
+
+      // Insert a page-ref for pageId adjacent to afterPageId, in afterPageId's own container
+      // (so it inherits that page's group). Appends at top level when the anchor is absent.
+      function structInsertPageAdjacent(pageId, anchorPageId, before) {
+        const structure = getStructure();
+        if (anchorPageId != null) {
+          const loc = findPageLocation(anchorPageId);
+          if (loc) {
+            if (loc.group) loc.group.pages.splice(loc.within + (before ? 0 : 1), 0, pageId);
+            else structure.splice(loc.topIndex + (before ? 0 : 1), 0, { type: 'page', id: pageId });
+            return;
+          }
+        }
+        structure.push({ type: 'page', id: pageId });
+      }
+
+      // The only writer of pageOrder and page.groupId — both are projections of the structure.
+      function syncDerivedFromStructure(doc = app.document) {
+        const storyBook = doc && doc.storyBook;
+        if (!storyBook) return;
+        const structure = Array.isArray(storyBook.structure) ? storyBook.structure : [];
+        const order = [];
+        const groupOf = {};
+        for (const item of structure) {
+          if (item.type === 'group') {
+            for (const pageId of item.pages) {
+              if (doc.pages[pageId]) { order.push(pageId); groupOf[pageId] = item.id; }
+            }
+          } else if (doc.pages[item.id]) {
+            order.push(item.id);
+            groupOf[item.id] = null;
+          }
+        }
+        storyBook.pageOrder = order;
+        for (const page of Object.values(doc.pages)) {
+          if (page && typeof page === 'object') {
+            page.groupId = Object.prototype.hasOwnProperty.call(groupOf, page.id) ? groupOf[page.id] : null;
+          }
+        }
+      }
+
+      // Legacy migration: build an authoritative structure from an old pageOrder + groupId +
+      // groups map. Group metadata (name, collapsed) is folded into the group-refs, since the
+      // separate groups map no longer exists once structure is authoritative.
+      function rebuildStructureFromLegacy(doc) {
+        const storyBook = doc && doc.storyBook;
+        if (!storyBook) return [];
+        const pageOrder = storyBook.pageOrder || [];
+        const pages = doc.pages || {};
+        const legacyGroups = storyBook.groups || {};
+        const structure = [];
+        // A group id maps to its single structure item. Reusing it means a non-contiguous
+        // legacy group (a page of the group separated from the rest — a quirk the old model
+        // permitted) is repaired into one contiguous group at its first occurrence, rather than
+        // producing two group-refs sharing an id.
+        const groupRefById = new Map();
+        for (const pageId of pageOrder) {
+          const page = pages[pageId];
           if (!page) continue;
           const groupId = page.groupId || null;
-          if (!current || current.groupId !== groupId) {
-            current = { groupId, group: getPageGroup(groupId), pageIds: [], startIndex: i };
-            runs.push(current);
+          if (groupId && legacyGroups[groupId]) {
+            let groupRef = groupRefById.get(groupId);
+            if (!groupRef) {
+              const meta = legacyGroups[groupId];
+              groupRef = {
+                type: 'group', id: groupId,
+                name: String(meta.name || 'Group'), collapsed: Boolean(meta.collapsed), pages: []
+              };
+              groupRefById.set(groupId, groupRef);
+              structure.push(groupRef);
+            }
+            groupRef.pages.push(pageId);
+          } else {
+            structure.push({ type: 'page', id: pageId });
           }
-          current.pageIds.push(pageId);
-          current.endIndex = i;
+        }
+        storyBook.structure = structure;
+        return structure;
+      }
+
+      // Validate/repair a stored structure: well-form group-refs, drop refs to missing pages,
+      // and ensure every page in the map appears exactly once (orphans appended at top level).
+      function normalizeStructure(doc) {
+        const storyBook = doc.storyBook;
+        const pages = doc.pages || {};
+        // Fallback source for group metadata when a stored group-ref lacks it (e.g. an early
+        // structure format that kept name/collapsed only in the separate groups map).
+        const legacyGroups = storyBook.groups || {};
+        const seen = new Set();
+        const clean = [];
+        for (const item of Array.isArray(storyBook.structure) ? storyBook.structure : []) {
+          if (!item || typeof item !== 'object') continue;
+          if (item.type === 'group') {
+            const groupPages = [];
+            for (const pageId of Array.isArray(item.pages) ? item.pages : []) {
+              if (pages[pageId] && !seen.has(pageId)) { seen.add(pageId); groupPages.push(pageId); }
+            }
+            const meta = legacyGroups[item.id] || {};
+            clean.push({
+              type: 'group',
+              id: item.id || createId('group'),
+              name: String(item.name || meta.name || 'Group'),
+              collapsed: Boolean(item.collapsed !== undefined ? item.collapsed : meta.collapsed),
+              pages: groupPages
+            });
+          } else if (item.type === 'page') {
+            if (pages[item.id] && !seen.has(item.id)) { seen.add(item.id); clean.push({ type: 'page', id: item.id }); }
+          }
+        }
+        // Any page not referenced anywhere is appended so nothing is silently lost.
+        for (const pageId of Object.keys(pages)) {
+          if (!seen.has(pageId)) clean.push({ type: 'page', id: pageId });
+        }
+        storyBook.structure = clean;
+        return clean;
+      }
+
+      // Contiguous runs derived from the structure. A group-ref is one run; a maximal sequence
+      // of adjacent page-refs is one ungrouped run.
+      function getPageRuns() {
+        const runs = [];
+        let idx = 0;
+        let ungrouped = null;
+        for (const item of getStructure()) {
+          if (item.type === 'group') {
+            ungrouped = null;
+            const pageIds = (item.pages || []).filter((id) => app.document.pages[id]);
+            runs.push({ groupId: item.id, group: item, pageIds, startIndex: idx, endIndex: idx + pageIds.length - 1 });
+            idx += pageIds.length;
+          } else {
+            if (!app.document.pages[item.id]) continue;
+            if (!ungrouped) {
+              ungrouped = { groupId: null, group: null, pageIds: [], startIndex: idx };
+              runs.push(ungrouped);
+            }
+            ungrouped.pageIds.push(item.id);
+            ungrouped.endIndex = idx;
+            idx += 1;
+          }
         }
         return runs;
       }
 
-      function rebuildPageOrderFromRuns(runs) {
-        const flattened = [];
-        for (const run of runs) flattened.push(...run.pageIds);
-        app.document.storyBook.pageOrder = flattened;
-      }
-
-      // Empty groups have no run and therefore no position, so they are removed.
-      function pruneEmptyPageGroups() {
-        const groups = getPageGroups();
-        const referenced = new Set(
-          Object.values(app.document.pages || {})
-            .map((page) => page && page.groupId)
-            .filter(Boolean)
-        );
-        for (const groupId of Object.keys(groups)) {
-          if (!referenced.has(groupId)) delete groups[groupId];
+      // Rebuild the whole structure from an ordered list of runs (used by run reordering).
+      // Group metadata is taken from each run's group-ref so name/collapsed survive.
+      function rebuildStructureFromRuns(runs) {
+        const structure = [];
+        for (const run of runs) {
+          if (run.groupId) {
+            structure.push({
+              type: 'group', id: run.groupId,
+              name: run.group ? run.group.name : 'Group',
+              collapsed: run.group ? Boolean(run.group.collapsed) : false,
+              pages: [...run.pageIds]
+            });
+          } else {
+            for (const pageId of run.pageIds) structure.push({ type: 'page', id: pageId });
+          }
         }
+        app.document.storyBook.structure = structure;
       }
 
+      // Empty groups are pruned during this stage to preserve current behavior; a later stage
+      // removes this so scaffold-first empty chapters can persist.
+
+      // Wrap a single page in a new group in place.
       function createPageGroup(seedPageId) {
         if (app.mode !== 'edit') return;
         const page = app.document.pages[seedPageId] || getCurrentPage();
         if (!page) return;
         captureHistory();
-        const groups = getPageGroups();
-        const groupId = createId('group');
-        groups[groupId] = {
-          id: groupId,
-          name: `Group ${Object.keys(groups).length + 1}`,
-          collapsed: false
+        const groupCount = getStructure().filter((item) => item.type === 'group').length;
+        const groupItem = {
+          type: 'group', id: createId('group'),
+          name: `Group ${groupCount + 1}`, collapsed: false, pages: [page.id]
         };
-        page.groupId = groupId;
-        pruneEmptyPageGroups();
+        const loc = findPageLocation(page.id);
+        if (loc && !loc.group) {
+          getStructure().splice(loc.topIndex, 1, groupItem);
+        } else if (loc && loc.group) {
+          loc.group.pages.splice(loc.within, 1);
+          getStructure().splice(findGroupIndex(loc.group.id) + 1, 0, groupItem);
+        } else {
+          getStructure().push(groupItem);
+        }
+        syncDerivedFromStructure();
         setDirty();
         renderAll();
-        els.statusText.textContent = `Created ${groups[groupId] ? groups[groupId].name : 'group'}`;
+        els.statusText.textContent = `Created ${groupItem.name}`;
       }
 
-      // Removes the grouping, never the pages.
+      // Scaffold-first: append a new empty chapter. Pages are dragged in afterwards. This is
+      // possible only because structure is authoritative — an empty group has no pages to
+      // position it, so it could not exist in the old pageOrder-derived model.
+      function createEmptyPageGroup() {
+        if (app.mode !== 'edit') return;
+        captureHistory();
+        const groupCount = getStructure().filter((item) => item.type === 'group').length;
+        const groupItem = {
+          type: 'group', id: createId('group'),
+          name: `Chapter ${groupCount + 1}`, collapsed: false, pages: []
+        };
+        getStructure().push(groupItem);
+        syncDerivedFromStructure();
+        setDirty();
+        renderAll();
+        els.statusText.textContent = `Created empty ${groupItem.name}`;
+      }
+
+      // Removes the grouping, never the pages: the group-ref is replaced by its page-refs
+      // in place, so the pages keep their position. An empty group is simply removed.
       function deletePageGroup(groupId) {
         if (app.mode !== 'edit') return;
-        const group = getPageGroup(groupId);
-        if (!group) return;
+        const groupIndex = findGroupIndex(groupId);
+        if (groupIndex < 0) return;
+        const group = getStructure()[groupIndex];
         captureHistory();
-        for (const page of Object.values(app.document.pages)) {
-          if (page && page.groupId === groupId) page.groupId = null;
-        }
-        delete getPageGroups()[groupId];
+        const pageRefs = group.pages.map((id) => ({ type: 'page', id }));
+        getStructure().splice(groupIndex, 1, ...pageRefs);
+        syncDerivedFromStructure();
         setDirty();
         renderAll();
         els.statusText.textContent = `Ungrouped pages from ${group.name}`;
       }
 
+      // Move a page into a group (appended) or out of one. Leaving a group places the page as a
+      // top-level ref immediately after that group, so the group stays contiguous.
       function setPageGroup(pageId, groupId) {
         if (app.mode !== 'edit') return;
         const page = app.document.pages[pageId];
         if (!page) return;
-        const nextGroupId = groupId && getPageGroup(groupId) ? groupId : null;
-        if ((page.groupId || null) === nextGroupId) return;
+        const target = groupId && getPageGroup(groupId) ? groupId : null;
+        const loc = findPageLocation(pageId);
+        const currentGroupId = loc && loc.group ? loc.group.id : null;
+        if (currentGroupId === target) return;
         captureHistory();
-        page.groupId = nextGroupId;
-        // Keep the page adjacent to its new group so runs stay contiguous.
-        if (nextGroupId) {
-          const pageOrder = app.document.storyBook.pageOrder;
-          const from = pageOrder.indexOf(pageId);
-          const lastIndex = pageOrder.reduce((acc, id, idx) => {
-            const other = app.document.pages[id];
-            return other && id !== pageId && other.groupId === nextGroupId ? idx : acc;
-          }, -1);
-          if (from >= 0 && lastIndex >= 0) {
-            pageOrder.splice(from, 1);
-            const insertAt = lastIndex >= from ? lastIndex : lastIndex + 1;
-            pageOrder.splice(insertAt, 0, pageId);
-          }
+        const fromGroup = loc && loc.group ? loc.group : null;
+        structRemovePage(pageId);
+        if (target) {
+          getPageGroup(target).pages.push(pageId);
+        } else if (fromGroup) {
+          getStructure().splice(findGroupIndex(fromGroup.id) + 1, 0, { type: 'page', id: pageId });
+        } else {
+          getStructure().push({ type: 'page', id: pageId });
         }
-        pruneEmptyPageGroups();
+        syncDerivedFromStructure();
         setDirty();
         renderAll();
       }
@@ -4106,7 +4371,8 @@
         captureHistory();
         const moved = runs.splice(fromRunIndex, 1)[0];
         runs.splice(toRunIndex, 0, moved);
-        rebuildPageOrderFromRuns(runs);
+        rebuildStructureFromRuns(runs);
+        syncDerivedFromStructure();
         setDirty();
         renderAll();
       }
@@ -4119,19 +4385,11 @@
       }
 
       function insertPageAfter(afterPageId, newPage) {
-        // Imported pages join the group of the page they follow, keeping runs contiguous.
-        if (newPage && newPage.groupId === undefined) {
-          const afterPage = app.document.pages[afterPageId] || null;
-          newPage.groupId = (afterPage && afterPage.groupId) || null;
-        }
+        // Inserted into the anchor page's container, so it inherits that page's group. groupId
+        // is derived, so any value carried on newPage is ignored in favour of the structure.
         app.document.pages[newPage.id] = newPage;
-        const order = app.document.storyBook.pageOrder;
-        const idx = order.indexOf(afterPageId);
-        if (idx >= 0) {
-          order.splice(idx + 1, 0, newPage.id);
-        } else {
-          order.push(newPage.id);
-        }
+        structInsertPageAdjacent(newPage.id, afterPageId, false);
+        syncDerivedFromStructure();
       }
 
       async function importDroppedRows(rows, page, basePoint, newPageMode) {
@@ -4309,29 +4567,22 @@
           background: { type: 'solid', color: '#ffffff' }
         };
         const pageId = createId('page');
-        const pageOrder = app.document.storyBook.pageOrder;
         // A new page lands directly after the page it was created from and joins that page's
-        // group, matching duplicate and paste. Falling through to the end of the book would
-        // silently drop it into whatever group happens to be last.
+        // group (inherited from the anchor's container in the structure), matching duplicate
+        // and paste. Falling through to the end would silently land it wherever the book ends.
         const anchorPageId = options.afterPageId || app.currentPageId;
-        const anchorPage = app.document.pages[anchorPageId] || null;
-        const anchorIndex = anchorPage ? pageOrder.indexOf(anchorPageId) : -1;
         const page = {
           id: pageId,
           name: copyFrom ? `${source.name} Copy` : `Page ${app.document.storyBook.pageOrder.length + 1}`,
           width: source.width,
           height: source.height,
           imagePath: normalizeImageBasePath(source.imagePath || ''),
-          groupId: (anchorPage && anchorPage.groupId) || null,
           background: cloneDoc(source.background || { type: 'solid', color: '#ffffff' }),
           elementOrder: []
         };
         app.document.pages[pageId] = page;
-        if (anchorIndex >= 0) {
-          pageOrder.splice(anchorIndex + 1, 0, pageId);
-        } else {
-          pageOrder.push(pageId);
-        }
+        structInsertPageAdjacent(pageId, app.document.pages[anchorPageId] ? anchorPageId : null, false);
+        syncDerivedFromStructure();
         app.document.appState.currentPageId = pageId;
         app.currentPageId = pageId;
         app.selectedElementId = null;
@@ -4383,14 +4634,13 @@
           width: source.width,
           height: source.height,
           imagePath: normalizeImageBasePath(source.imagePath || ''),
-          // Inserted directly after its source, so it belongs to the same group.
-          groupId: source.groupId || null,
           background: cloneDoc(source.background || { type: 'solid', color: '#ffffff' }),
           elementOrder: []
         };
         app.document.pages[nextPageId] = duplicatedPage;
-        const sourceIndex = Math.max(0, app.document.storyBook.pageOrder.indexOf(pageId));
-        app.document.storyBook.pageOrder.splice(sourceIndex + 1, 0, nextPageId);
+        // Inserted directly after its source, in the source's container, so it shares its group.
+        structInsertPageAdjacent(nextPageId, pageId, false);
+        syncDerivedFromStructure();
         clonePageElements(source, nextPageId, duplicatedPage.elementOrder);
         app.currentPageId = nextPageId;
         app.document.appState.currentPageId = nextPageId;
@@ -4410,14 +4660,13 @@
         if (!confirm(`Delete ${page.name}?`)) return;
 
         captureHistory();
+        const removedIndex = app.document.storyBook.pageOrder.indexOf(page.id);
         for (const elementId of page.elementOrder) {
           delete app.document.elements[elementId];
         }
         delete app.document.pages[page.id];
-
-        const oldOrder = app.document.storyBook.pageOrder.slice();
-        const removedIndex = oldOrder.indexOf(page.id);
-        app.document.storyBook.pageOrder = oldOrder.filter((id) => id !== page.id);
+        structRemovePage(page.id);
+        syncDerivedFromStructure();
 
         if (app.currentPageId === page.id) {
           const nextIndex = Math.min(removedIndex, app.document.storyBook.pageOrder.length - 1);
@@ -4447,14 +4696,13 @@
           width: source.width,
           height: source.height,
           imagePath: normalizeImageBasePath(source.imagePath || ''),
-          // Pasted directly after the current page, so it joins that page's group.
-          groupId: (getCurrentPage() && getCurrentPage().groupId) || null,
           background: cloneDoc(source.background || { type: 'solid', color: '#ffffff' }),
           elementOrder: []
         };
         app.document.pages[pageId] = page;
-        const currentIndex = Math.max(0, app.document.storyBook.pageOrder.indexOf(app.currentPageId));
-        app.document.storyBook.pageOrder.splice(currentIndex + 1, 0, pageId);
+        // Pasted directly after the current page, in its container, so it joins that group.
+        structInsertPageAdjacent(pageId, app.currentPageId, false);
+        syncDerivedFromStructure();
         clonePageElements(source, pageId, page.elementOrder);
         app.currentPageId = pageId;
         app.document.appState.currentPageId = pageId;
@@ -4463,16 +4711,28 @@
         renderAll();
       }
 
+      // Move the current page one step within its own container (a group's page list, or the
+      // top level). Swapping only with an adjacent page keeps groups contiguous; a move that
+      // would cross a group boundary is clamped rather than silently changing the page's group.
       function moveCurrentPage(direction) {
         const page = getCurrentPage();
         if (!page || app.mode !== 'edit') return;
-        const order = app.document.storyBook.pageOrder;
-        const currentIndex = order.indexOf(page.id);
-        const targetIndex = currentIndex + direction;
-        if (currentIndex < 0 || targetIndex < 0 || targetIndex >= order.length) return;
-        captureHistory();
-        order.splice(currentIndex, 1);
-        order.splice(targetIndex, 0, page.id);
+        const loc = findPageLocation(page.id);
+        if (!loc) return;
+        if (loc.group) {
+          const pages = loc.group.pages;
+          const target = loc.within + direction;
+          if (target < 0 || target >= pages.length) return;
+          captureHistory();
+          [pages[loc.within], pages[target]] = [pages[target], pages[loc.within]];
+        } else {
+          const structure = getStructure();
+          const target = loc.topIndex + direction;
+          if (target < 0 || target >= structure.length || structure[target].type !== 'page') return;
+          captureHistory();
+          [structure[loc.topIndex], structure[target]] = [structure[target], structure[loc.topIndex]];
+        }
+        syncDerivedFromStructure();
         setDirty();
         renderAll();
       }
@@ -4779,14 +5039,23 @@
         renderAll();
       }
 
-      function canvasCanScroll() {
+      // Whether the canvas overflows its viewport along one axis. Asked per axis because in
+      // view mode each arrow pair decides independently whether it pans or turns the page.
+      function canvasAxisOverflows(axis) {
         const wrap = els.canvasWrap;
         if (!wrap) return false;
-        return wrap.scrollWidth > wrap.clientWidth + 1 || wrap.scrollHeight > wrap.clientHeight + 1;
+        return axis === 'x'
+          ? wrap.scrollWidth > wrap.clientWidth + 1
+          : wrap.scrollHeight > wrap.clientHeight + 1;
       }
 
-      // Arrow-key panning of the zoomed canvas. Only reachable when no element is selected,
-      // so nudging a selected element keeps the arrows.
+      function canvasCanScroll() {
+        return canvasAxisOverflows('x') || canvasAxisOverflows('y');
+      }
+
+      // Arrow-key panning of the zoomed canvas. In edit mode only reachable when no element
+      // is selected, so nudging a selected element keeps the arrows; in view mode reached
+      // whenever the pressed arrow's own axis overflows.
       function panCanvas(key, coarse) {
         const wrap = els.canvasWrap;
         if (!wrap) return;
@@ -4987,25 +5256,22 @@
           header.classList.remove('drag-over');
           if (dragState.runIndex !== null && dragState.runIndex !== runIndex) {
             movePageRunToRunIndex(dragState.runIndex, runIndex);
-          } else if (dragState.pageIndex !== null) {
+          } else if (dragState.pageId) {
             // A page dropped on a header joins that group at its head.
-            const pageOrder = app.document.storyBook.pageOrder;
-            const draggedId = pageOrder[dragState.pageIndex];
-            if (draggedId) {
+            const draggedId = dragState.pageId;
+            const groupItem = getPageGroup(run.groupId);
+            if (groupItem && app.document.pages[draggedId]) {
               captureHistory();
-              const from = pageOrder.indexOf(draggedId);
-              if (from >= 0) pageOrder.splice(from, 1);
-              const insertAt = app.document.storyBook.pageOrder.indexOf(run.pageIds[0]);
-              pageOrder.splice(insertAt < 0 ? pageOrder.length : insertAt, 0, draggedId);
-              const draggedPage = app.document.pages[draggedId];
-              if (draggedPage) draggedPage.groupId = run.groupId;
-              pruneEmptyPageGroups();
+              structRemovePage(draggedId);
+              groupItem.pages.unshift(draggedId);
+              syncDerivedFromStructure();
               setDirty();
               renderAll();
             }
           }
           dragState.runIndex = null;
           dragState.pageIndex = null;
+          dragState.pageId = null;
         });
 
         return header;
@@ -5075,28 +5341,55 @@
         els.pageList.innerHTML = '';
         pruneThumbCache();
         const dragState = app.pageDragState;
-        const pageOrder = app.document.storyBook.pageOrder;
         const runs = getPageRuns();
-        const runByPageId = new Map();
-        runs.forEach((run, runIndex) => {
-          for (const pageId of run.pageIds) runByPageId.set(pageId, { run, runIndex });
-        });
-        let lastRenderedRunIndex = -1;
 
-        for (let i = 0; i < pageOrder.length; i++) {
-          const pageId = pageOrder[i];
-          const page = app.document.pages[pageId];
-          if (!page) continue;
-
-          const runInfo = runByPageId.get(pageId);
-          if (runInfo && runInfo.run.groupId && runInfo.runIndex !== lastRenderedRunIndex) {
-            els.pageList.appendChild(
-              buildPageGroupHeader(runInfo.run, runInfo.runIndex, runs.length, dragState)
-            );
+        // Iterate runs, not pageOrder, so an empty group still renders its header. Each group
+        // run emits a header; a collapsed or empty group emits the header only.
+        let i = -1;
+        for (let runIndex = 0; runIndex < runs.length; runIndex += 1) {
+          const run = runs[runIndex];
+          const runInfo = { run, runIndex };
+          if (run.groupId) {
+            els.pageList.appendChild(buildPageGroupHeader(run, runIndex, runs.length, dragState));
           }
-          if (runInfo) lastRenderedRunIndex = runInfo.runIndex;
-          // Collapsed groups still render their header, just not their pages.
-          if (runInfo && runInfo.run.group && runInfo.run.group.collapsed) continue;
+          if (run.group && run.group.collapsed) { i += run.pageIds.length; continue; }
+          if (run.groupId && run.pageIds.length === 0) {
+            const emptyHint = document.createElement('div');
+            emptyHint.className = 'page-group-empty';
+            emptyHint.textContent = 'Empty chapter — drag pages here';
+            // A drop target so a dragged page joins this chapter, mirroring the header drop.
+            emptyHint.addEventListener('dragover', (event) => {
+              if (app.mode !== 'edit' || !dragState.pageId) return;
+              event.preventDefault();
+              clearPageListDropHighlights();
+              emptyHint.classList.add('drag-over');
+            });
+            emptyHint.addEventListener('dragleave', () => emptyHint.classList.remove('drag-over'));
+            emptyHint.addEventListener('drop', (event) => {
+              if (app.mode !== 'edit') return;
+              event.preventDefault();
+              event.stopPropagation();
+              emptyHint.classList.remove('drag-over');
+              const draggedId = dragState.pageId;
+              const groupItem = getPageGroup(run.groupId);
+              if (draggedId && groupItem && app.document.pages[draggedId]) {
+                captureHistory();
+                structRemovePage(draggedId);
+                groupItem.pages.push(draggedId);
+                syncDerivedFromStructure();
+                setDirty();
+                renderAll();
+              }
+              dragState.pageId = null;
+              dragState.pageIndex = null;
+              dragState.runIndex = null;
+            });
+            els.pageList.appendChild(emptyHint);
+          }
+          for (const pageId of run.pageIds) {
+            i += 1;
+            const page = app.document.pages[pageId];
+            if (!page) continue;
 
           const item = document.createElement('div');
           const grouped = Boolean(runInfo && runInfo.run.groupId);
@@ -5189,6 +5482,7 @@
           item.addEventListener('dragstart', (e) => {
             if (app.mode !== 'edit') return;
             dragState.pageIndex = i;
+            dragState.pageId = pageId;
             dragState.runIndex = null;
             item.classList.add('dragging');
             e.dataTransfer.effectAllowed = 'move';
@@ -5196,6 +5490,7 @@
           });
           item.addEventListener('dragend', () => {
             dragState.pageIndex = null;
+            dragState.pageId = null;
             dragState.runIndex = null;
             item.classList.remove('dragging');
             clearPageListDropHighlights();
@@ -5221,23 +5516,23 @@
               dragState.pageIndex = null;
               return;
             }
-            const from = dragState.pageIndex;
-            const to = i;
-            if (from !== null && to !== null && from !== to) {
+            const draggedId = dragState.pageId;
+            if (draggedId && draggedId !== pageId && app.document.pages[draggedId]) {
               captureHistory();
-              const moved = pageOrder.splice(from, 1)[0];
-              pageOrder.splice(to, 0, moved);
-              // The dropped page adopts the group of wherever it landed, so runs stay contiguous.
-              const movedPage = app.document.pages[moved];
-              if (movedPage) movedPage.groupId = page.groupId || null;
-              pruneEmptyPageGroups();
+              // The dragged page moves next to the drop target, into the target's container, so
+              // it adopts that page's group and the structure stays contiguous.
+              structRemovePage(draggedId);
+              structInsertPageAdjacent(draggedId, pageId, true);
+              syncDerivedFromStructure();
               setDirty();
               renderAll();
             }
             dragState.pageIndex = null;
+            dragState.pageId = null;
             dragState.runIndex = null;
           });
           els.pageList.appendChild(item);
+          }
         }
 
         applyPageListDensity();
@@ -6010,7 +6305,7 @@
       buttons.nextPage.addEventListener('click', () => navigatePage(1));
       buttons.addPage.addEventListener('click', () => createPage());
       if (buttons.newGroup) {
-        buttons.newGroup.addEventListener('click', () => createPageGroup(app.currentPageId));
+        buttons.newGroup.addEventListener('click', () => createEmptyPageGroup());
       }
       if (buttons.pageDensity) {
         buttons.pageDensity.addEventListener('click', () => {
@@ -6048,6 +6343,7 @@
             return;
           }
           app.pageDragState.pageIndex = pageIndex;
+          app.pageDragState.pageId = app.currentPageId;
           app.pageDragState.runIndex = null;
           els.canvasPageTitle.classList.add('dragging');
           event.dataTransfer.effectAllowed = 'move';
@@ -6057,6 +6353,7 @@
         });
         els.canvasPageTitle.addEventListener('dragend', () => {
           app.pageDragState.pageIndex = null;
+          app.pageDragState.pageId = null;
           app.pageDragState.runIndex = null;
           els.canvasPageTitle.classList.remove('dragging');
           clearPageListDropHighlights();
@@ -6310,6 +6607,15 @@
         if (button) button.blur();
       }, true);
 
+      // Native "leave site?" prompt when closing, reloading, or navigating away with unsaved
+      // changes. The message is fixed by the browser and cannot be customised; setting
+      // returnValue is what triggers it. No prompt when the document is clean.
+      window.addEventListener('beforeunload', (event) => {
+        if (!app.dirty) return;
+        event.preventDefault();
+        event.returnValue = '';
+      });
+
       window.addEventListener('keydown', (event) => {
         const reviewOpen = els.dropReviewModal && !els.dropReviewModal.classList.contains('hidden');
         if (reviewOpen) {
@@ -6340,9 +6646,14 @@
             else if (zoomOutKey) setZoom(app.zoom - 0.1);
             else setZoom(1);
             // Surfaced here because panning has no button to advertise it.
-            els.statusText.textContent = canvasCanScroll()
-              ? `Zoom ${Math.round(app.zoom * 100)}% · Arrow keys pan when nothing is selected`
-              : `Zoom ${Math.round(app.zoom * 100)}%`;
+            const zoomLabel = `Zoom ${Math.round(app.zoom * 100)}%`;
+            if (!canvasCanScroll()) {
+              els.statusText.textContent = zoomLabel;
+            } else if (app.mode === 'view') {
+              els.statusText.textContent = `${zoomLabel} · Arrow keys pan the overflowing axis, and change page on the other`;
+            } else {
+              els.statusText.textContent = `${zoomLabel} · Arrow keys pan when nothing is selected`;
+            }
             return;
           }
         }
@@ -6413,13 +6724,24 @@
           event.preventDefault();
           nudgeSelectedElement(0, moveStep);
         }
-        if (app.mode === 'view' && !event.altKey && !event.ctrlKey && !event.metaKey && event.key === 'ArrowLeft') {
+        // View mode: each arrow pair decides for itself. An axis that overflows the viewport
+        // has somewhere to pan, so the arrows along it move the page; an axis that fits has
+        // nothing to pan, so they turn the page instead. Up/Down page as well as Left/Right,
+        // so the book reads the same whichever pair the reader reaches for. Overflow, not
+        // scroll position, is the test: an arrow must not change meaning at the edge of a pan.
+        if (app.mode === 'view'
+          && !event.altKey && !event.ctrlKey && !event.metaKey
+          && !app.editingElementId
+          && (event.key === 'ArrowLeft' || event.key === 'ArrowRight'
+            || event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
           event.preventDefault();
-          navigatePage(-1);
-        }
-        if (app.mode === 'view' && !event.altKey && !event.ctrlKey && !event.metaKey && event.key === 'ArrowRight') {
-          event.preventDefault();
-          navigatePage(1);
+          const horizontal = event.key === 'ArrowLeft' || event.key === 'ArrowRight';
+          if (canvasAxisOverflows(horizontal ? 'x' : 'y')) {
+            panCanvas(event.key, event.shiftKey);
+          } else {
+            navigatePage(event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1);
+          }
+          return;
         }
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
           event.preventDefault();
