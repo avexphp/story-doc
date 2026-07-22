@@ -589,6 +589,14 @@
       font-size: 0.76rem;
       color: var(--text-muted);
       text-align: center;
+      /* It adds a page on click, so it has to read as a control and not as a caption. */
+      cursor: pointer;
+    }
+
+    .page-group-empty:hover {
+      border-color: rgba(148, 163, 184, 0.6);
+      color: #cbd5f5;
+      background: rgba(148, 163, 184, 0.08);
     }
 
     .page-group-empty.drag-over {
@@ -613,9 +621,28 @@
       box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.45) inset;
     }
 
+    /* Two different things, so two different cues: `selected` is a blue fill marking a member
+       of the picked set, `active` is the orange frame marking the one page on the canvas. The
+       current page is always in the selection, so a row commonly carries both. */
+    .page-item.selected {
+      background: rgba(59, 130, 246, 0.16);
+      border-color: rgba(96, 165, 250, 0.5);
+    }
+
     .page-item.active {
       border-color: rgba(249, 115, 22, 0.75);
       background: rgba(249, 115, 22, 0.14);
+    }
+
+    .page-item.selected.active {
+      border-color: rgba(249, 115, 22, 0.75);
+      background: rgba(59, 130, 246, 0.16);
+    }
+
+    .panel-count {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      white-space: nowrap;
     }
 
     .page-item-main {
@@ -1215,27 +1242,38 @@
       box-shadow: 0 12px 30px rgba(2, 6, 23, 0.45);
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      /* Flush rows. A gap between items would compete with the group spacing, which is the
+         only separation the menu should show. */
+      gap: 0;
     }
 
+    /* Flat rows rather than filled tiles: six item boxes drew six boundaries, so a group
+       boundary had nothing left to distinguish it. The fill now marks the hovered row only. */
     .context-menu-item {
       width: 100%;
-      padding: 0.52rem 0.62rem;
-      border-radius: 8px;
-      border: 1px solid transparent;
-      background: rgba(51, 65, 85, 0.45);
+      padding: 0.5rem 0.6rem;
+      border-radius: 6px;
+      border: 0;
+      background: transparent;
       color: var(--text);
       text-align: left;
       cursor: pointer;
     }
 
     .context-menu-item:hover {
-      background: rgba(59, 130, 246, 0.2);
-      border-color: rgba(59, 130, 246, 0.42);
+      background: rgba(59, 130, 246, 0.22);
+      /* Cancels the global button lift: a row in a list should not rise off the surface. */
       transform: none;
     }
 
+    /* Destructive actions are named in red rather than drawn as a red slab, which at full
+       width read as the menu's primary action. */
     .context-menu-item.danger {
+      background: transparent;
+      color: #fca5a5;
+    }
+
+    .context-menu-item.danger:hover {
       background: rgba(127, 29, 29, 0.55);
       color: #fee2e2;
     }
@@ -1243,6 +1281,22 @@
     .context-menu-item:disabled {
       opacity: 0.5;
       cursor: not-allowed;
+    }
+
+    /* Groups the menu into families. Space does the grouping, as it does between toolbar
+       clusters: 11px between groups against flush rows within one, and the rule only sharpens
+       a boundary the spacing has already made. Full-bleed into the menu's 6px padding, so it
+       reads as dividing the menu rather than as an item of its own.
+       Drawn as a 1px background rather than a border on a zero-height box: with the global
+       `* { box-sizing: border-box }` that construction is visible only via the border-box
+       floor, and `flex-shrink` could still collapse it. */
+    .context-menu hr {
+      flex: 0 0 auto;
+      width: auto;
+      height: 1px;
+      margin: 5px -6px;
+      border: 0;
+      background: rgba(148, 163, 184, 0.3);
     }
 
     .drop-review-modal {
@@ -1315,6 +1369,16 @@
       margin: 0;
       padding: 0;
       cursor: pointer;
+    }
+
+    /* A checkbox alone does not look disabled; the label has to say so too. */
+    .drop-review-newpage-label.is-disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .drop-review-newpage-label.is-disabled input[type="checkbox"] {
+      cursor: not-allowed;
     }
 
     .drop-review-list {
@@ -1552,14 +1616,15 @@
         <div class="page-panel-header">
           <div class="panel-heading-row">
             <h2>Pages</h2>
+            <span class="panel-count" id="pageSelectionCount" aria-live="polite"></span>
             <button type="button" class="dot-btn" id="pageDensityBtn" aria-label="Toggle compact page list"
                     title="Switch to compact list">▤</button>
             <button type="button" class="dot-btn help-dot" id="pageHelpBtn" aria-label="About page actions"
-                    title="Pages can be added, reordered, copied, pasted, duplicated, and deleted. Drag a page to reorder it, or right-click a page to group it. Right-click a group header to rename, move, or ungroup it.">?</button>
+                    title="Pages can be added, reordered, copied, pasted, duplicated, and deleted. Ctrl/Cmd+click picks out several pages, Shift+click selects a range, Ctrl/Cmd+A selects all, and Escape goes back to one. Selected pages move, duplicate, copy and delete together. Move Up/Down reorders within a chapter; dragging is what moves pages between chapters. Drag a page to reorder it, or right-click a page to move it to a chapter. Right-click a chapter header to add a page to it, paste pages into it, rename it, move it, or remove it while keeping its pages. Image files dropped on a chapter are imported as new pages in that chapter.">?</button>
           </div>
           <div class="page-create-row">
             <button type="button" class="primary" id="addPageBtn" title="Add Page">+ Page</button>
-            <button type="button" class="ghost" id="newGroupBtn" title="Create an empty chapter, then drag pages into it">+ Chapter</button>
+            <button type="button" class="ghost" id="newGroupBtn" title="Create an empty chapter, then click it to add a page or drag pages into it">+ Chapter</button>
           </div>
           <div class="page-action-row">
             <button class="icon-btn" id="duplicatePageBtn" title="Duplicate Page" aria-label="Duplicate Page">
@@ -1841,6 +1906,11 @@
           <input type="checkbox" id="dropReviewNewPageToggle">
           Add images as new pages
         </label>
+        <label class="drop-review-newpage-label" id="dropReviewPageSizeLabel"
+               title="Each new page takes the pixel size of its own image instead of the book's default page size">
+          <input type="checkbox" id="dropReviewPageSizeToggle">
+          Page size follows image
+        </label>
         <div class="drop-review-globalpath">
           <label for="dropReviewGlobalPath">Path for all</label>
           <input type="text" id="dropReviewGlobalPath" placeholder="e.g. assets/images">
@@ -1868,7 +1938,9 @@
         zoom: 1,
         dirty: false,
         savedDocumentSignature: '',
-        clipboardPage: null,
+        // Copied pages, in document order. A list because a selection can hold several; a
+        // deep clone rather than ids, so pasting is unaffected by later edits or deletions.
+        clipboardPages: [],
         clipboardElement: null,
         lastTextClick: null,
         history: {
@@ -1884,13 +1956,23 @@
         pendingEmbeddedInsert: null,
         suppressInternalDrop: false,
         dropReviewState: null,
+        // Name of the chapter a drop is targeting, shown in the review summary. Null for a
+        // canvas drop, which lands on the current page and needs no destination named.
+        dropReviewDestination: null,
         inlineRenameActive: false,
         // Handle of the file this document was opened from or last saved to. Lives only for
         // the session: handles cannot be serialized into the saved HTML.
         fileHandle: null,
         // Shared by the page list rows and the canvas title, which is why it cannot live in
         // renderPageList's closure: the title is not rebuilt per render.
-        pageDragState: { pageIndex: null, pageId: null, runIndex: null },
+        pageDragState: { pageIndex: null, pageId: null, runIndex: null, fromTitle: false },
+        // Pages picked out in the page list. View state: never captured in history and never
+        // marks the book dirty. Always contains currentPageId while the book has pages, so the
+        // canvas and the selection can never disagree about what is being worked on.
+        selectedPageIds: [],
+        // Where a Shift+click range starts. Successive Shift+clicks re-range from the same
+        // anchor rather than from the last row touched.
+        pageSelectionAnchorId: null,
         // Which properties sections are open. Session-only view state: collapsing a section
         // is not a document edit, so it never marks the book dirty.
         propSections: { element: true, page: true, document: false, assets: false },
@@ -1903,6 +1985,7 @@
 
       const els = {
         pageList: document.getElementById('pageList'),
+        pageSelectionCount: document.getElementById('pageSelectionCount'),
         stage: document.getElementById('stage'),
         canvasWrap: document.getElementById('canvasWrap'),
         fullScreenHelp: document.getElementById('fullScreenHelpBtn'),
@@ -1911,6 +1994,8 @@
         dropReviewSummary: document.getElementById('dropReviewSummary'),
         dropReviewList: document.getElementById('dropReviewList'),
         dropReviewNewPageToggle: document.getElementById('dropReviewNewPageToggle'),
+        dropReviewPageSizeToggle: document.getElementById('dropReviewPageSizeToggle'),
+        dropReviewPageSizeLabel: document.getElementById('dropReviewPageSizeLabel'),
         dropReviewGlobalPath: document.getElementById('dropReviewGlobalPath'),
         dropReviewApplyPathBtn: document.getElementById('dropReviewApplyPathBtn'),
         dropReviewCancelBtn: document.getElementById('dropReviewCancelBtn'),
@@ -2056,6 +2141,15 @@
         menu.innerHTML = '';
 
         for (const item of items) {
+          // A separator carries no action, so it is a rule rather than a button. Leading,
+          // trailing and doubled separators are dropped: entries are conditional, so a menu
+          // that loses its last group would otherwise end on a stray line.
+          if (item.separator) {
+            if (!menu.childElementCount) continue;
+            if (menu.lastElementChild.tagName === 'HR') continue;
+            menu.appendChild(document.createElement('hr'));
+            continue;
+          }
           const button = document.createElement('button');
           button.type = 'button';
           button.className = `context-menu-item${item.danger ? ' danger' : ''}`;
@@ -2070,6 +2164,10 @@
             }
           });
           menu.appendChild(button);
+        }
+
+        while (menu.lastElementChild && menu.lastElementChild.tagName === 'HR') {
+          menu.removeChild(menu.lastElementChild);
         }
 
         if (!menu.childElementCount) return;
@@ -2199,6 +2297,13 @@
         app.currentPageId = app.document.pages[entry.currentPageId] ? entry.currentPageId : app.document.storyBook.pageOrder[0] || null;
         app.selectedElementId = app.document.elements[entry.selectedElementId] ? entry.selectedElementId : null;
         app.editingElementId = null;
+        // The selection is view state, so it is not stored in history entries; it is repaired
+        // against the restored document instead, keeping the current page inside it.
+        const restoredSelection = getSelectedPageIds();
+        setPageSelection(
+          restoredSelection.includes(app.currentPageId) ? restoredSelection : [app.currentPageId],
+          { current: app.currentPageId }
+        );
         renderAll();
       }
 
@@ -2407,6 +2512,7 @@
         // document (which is not run through normalizePayload) as much as a loaded file.
         syncDerivedFromStructure(app.document);
         app.currentPageId = resolveStartPageId(nextDoc);
+        setPageSelection(app.currentPageId ? [app.currentPageId] : [], { current: app.currentPageId });
         app.selectedElementId = null;
         app.mode = nextDoc.appState?.mode || 'edit';
         app.zoom = Number(nextDoc.appState?.zoom) || 1;
@@ -2911,7 +3017,7 @@
             continue;
           }
           group.id = group.id || groupId;
-          group.name = String(group.name || 'Group');
+          group.name = String(group.name || 'Chapter');
           group.collapsed = Boolean(group.collapsed);
         }
 
@@ -3807,6 +3913,29 @@
         return rows;
       }
 
+      // The image's own pixel size, measured from the dropped File rather than from the
+      // reference path it will be saved as. The file is in hand and always readable; the path
+      // may be wrong, or point somewhere that does not exist yet.
+      function readImageSize(file) {
+        return new Promise((resolve) => {
+          if (!file) { resolve(null); return; }
+          const url = URL.createObjectURL(file);
+          const probe = new Image();
+          const done = (value) => {
+            URL.revokeObjectURL(url);
+            resolve(value);
+          };
+          probe.onload = () => {
+            // An SVG without intrinsic dimensions reports 0, which is not a page size.
+            const width = Math.round(probe.naturalWidth || 0);
+            const height = Math.round(probe.naturalHeight || 0);
+            done(width > 0 && height > 0 ? { width, height } : null);
+          };
+          probe.onerror = () => done(null);
+          probe.src = url;
+        });
+      }
+
       function fileNameWithoutExtension(name) {
         const str = String(name || '').trim();
         const dot = str.lastIndexOf('.');
@@ -3821,8 +3950,21 @@
         const images = supported.filter((row) => row.kind === 'image').length;
         const newPageMode = els.dropReviewNewPageToggle ? els.dropReviewNewPageToggle.checked : false;
         const unsupported = rows.length - supported.length;
+        const destination = app.dropReviewDestination;
+        const pageSizeFromImage = els.dropReviewPageSizeToggle
+          ? els.dropReviewPageSizeToggle.checked
+          : false;
         let summary = `Total: ${rows.length} | Supported: ${supported.length} | Embedded: ${embedded} | Reference: ${reference} | Unsupported: ${unsupported}`;
-        if (newPageMode && images > 0) summary += ` | ${images} image${images === 1 ? '' : 's'} → new page`;
+        if (newPageMode && images > 0) {
+          summary += ` | ${images} image${images === 1 ? '' : 's'} → new page`;
+          summary += pageSizeFromImage ? ' at its own size' : ' at the default size';
+        }
+        if (destination) {
+          summary += ` | Into ${destination}`;
+          // Only images become pages, so anything else has no destination in a chapter.
+          const nonImages = supported.length - images;
+          if (nonImages > 0) summary += ` | ${nonImages} non-image item${nonImages === 1 ? '' : 's'} will be skipped`;
+        }
         els.dropReviewSummary.textContent = summary;
       }
 
@@ -3940,23 +4082,53 @@
         }
       }
 
+      // Page size only means anything when pages are being created, so the toggle follows the
+      // one above it rather than sitting there offering a choice that would be ignored.
+      function syncDropReviewPageSizeToggle() {
+        if (!els.dropReviewPageSizeToggle) return;
+        const creatingPages = els.dropReviewNewPageToggle
+          ? els.dropReviewNewPageToggle.checked
+          : false;
+        els.dropReviewPageSizeToggle.disabled = !creatingPages;
+        if (!creatingPages) els.dropReviewPageSizeToggle.checked = false;
+        if (els.dropReviewPageSizeLabel) {
+          els.dropReviewPageSizeLabel.classList.toggle('is-disabled', !creatingPages);
+        }
+      }
+
       function resolveDropReview(approved) {
         const state = app.dropReviewState;
         if (!state) return;
         const newPageMode = els.dropReviewNewPageToggle ? els.dropReviewNewPageToggle.checked : false;
+        const pageSizeFromImage = newPageMode && els.dropReviewPageSizeToggle
+          ? els.dropReviewPageSizeToggle.checked
+          : false;
         app.dropReviewState = null;
         closeDropReviewDialog();
-        state.resolve({ approved, rows: state.rows, newPageMode });
+        state.resolve({ approved, rows: state.rows, newPageMode, pageSizeFromImage });
       }
 
-      function openDropReviewDialog(rows, initialGlobalPath) {
+      function openDropReviewDialog(rows, initialGlobalPath, options = {}) {
+        const forceNewPages = Boolean(options.forceNewPages);
+        app.dropReviewDestination = options.destinationName || null;
         if (!els.dropReviewModal || !els.dropReviewList || !els.dropReviewSummary) {
-          return Promise.resolve({ approved: true, rows, newPageMode: false });
+          return Promise.resolve({ approved: true, rows, newPageMode: forceNewPages });
         }
         if (els.dropReviewNewPageToggle) {
-          els.dropReviewNewPageToggle.checked = false;
-          els.dropReviewNewPageToggle.onchange = () => updateDropReviewSummary(rows);
+          // Forced on for a chapter drop: there is no page to put an element on, so new pages
+          // are the only possible outcome. Disabled rather than hidden, so the rule is visible.
+          els.dropReviewNewPageToggle.checked = forceNewPages;
+          els.dropReviewNewPageToggle.disabled = forceNewPages;
+          els.dropReviewNewPageToggle.onchange = () => {
+            syncDropReviewPageSizeToggle();
+            updateDropReviewSummary(rows);
+          };
         }
+        if (els.dropReviewPageSizeToggle) {
+          els.dropReviewPageSizeToggle.checked = false;
+          els.dropReviewPageSizeToggle.onchange = () => updateDropReviewSummary(rows);
+        }
+        syncDropReviewPageSizeToggle();
         if (els.dropReviewGlobalPath) {
           const startPath = normalizeReferencePath(initialGlobalPath || '');
           els.dropReviewGlobalPath.value = startPath;
@@ -4061,6 +4233,100 @@
 
       // A {id: group-item} view. The values are the actual structure items, so setting
       // group.name / group.collapsed mutates the authoritative structure directly.
+      // ---- Page selection. A flat set of page ids that may span chapters; chapters themselves
+      // are never selected. Normalized lazily here rather than maintained by every mutator, so
+      // a deleted page cannot linger in it: filtered to pages that still exist, and always
+      // returned in document order rather than the order they were clicked.
+      // An icon button says what it does in three places: the tooltip, the accessible name, and
+      // the visually hidden text. All three move together or they start contradicting.
+      function setPageActionLabel(button, label) {
+        if (!button) return;
+        button.title = label;
+        button.setAttribute('aria-label', label);
+        const srOnly = button.querySelector('.sr-only');
+        if (srOnly) srOnly.textContent = label;
+      }
+
+      function getSelectedPageIds() {
+        const chosen = new Set(app.selectedPageIds);
+        app.selectedPageIds = app.document.storyBook.pageOrder.filter((id) => chosen.has(id));
+        return app.selectedPageIds;
+      }
+
+      function isPageSelected(pageId) {
+        return getSelectedPageIds().includes(pageId);
+      }
+
+      // Which pages an action applies to. Right-clicking inside the selection acts on all of
+      // it; right-clicking a row outside it acts on that row alone, which is also what the
+      // caller gets by passing an explicit anchor from a surface that shows no selection.
+      function getActionPageIds(anchorPageId = null) {
+        const selected = getSelectedPageIds();
+        if (anchorPageId && !selected.includes(anchorPageId)) return [anchorPageId];
+        if (selected.length) return selected.slice();
+        return app.currentPageId ? [app.currentPageId] : [];
+      }
+
+      function setPageSelection(pageIds, options = {}) {
+        const chosen = new Set((pageIds || []).filter((id) => app.document.pages[id]));
+        app.selectedPageIds = app.document.storyBook.pageOrder.filter((id) => chosen.has(id));
+        const preferred = options.current && chosen.has(options.current)
+          ? options.current
+          : app.selectedPageIds[0];
+        if (preferred && preferred !== app.currentPageId) {
+          app.currentPageId = preferred;
+          app.document.appState.currentPageId = preferred;
+          app.selectedElementId = null;
+        }
+        if (options.anchor !== false) app.pageSelectionAnchorId = options.current || preferred || null;
+      }
+
+      // The rows a Shift+click can span: what the list actually shows, so a range never picks
+      // up pages hidden inside a collapsed chapter.
+      function getVisiblePageIds() {
+        const visible = [];
+        for (const run of getPageRuns()) {
+          if (run.group && run.group.collapsed) continue;
+          for (const pageId of run.pageIds) visible.push(pageId);
+        }
+        return visible;
+      }
+
+      function togglePageInSelection(pageId) {
+        const selected = getSelectedPageIds();
+        if (!selected.includes(pageId)) {
+          setPageSelection([...selected, pageId], { current: pageId });
+          return;
+        }
+        // The selection always holds the current page, so removing the last one would break
+        // that invariant with nothing to fall back to.
+        if (selected.length === 1) return;
+        const next = selected.filter((id) => id !== pageId);
+        setPageSelection(next, { current: pageId === app.currentPageId ? next[0] : app.currentPageId });
+      }
+
+      function selectPageRangeTo(pageId) {
+        const visible = getVisiblePageIds();
+        const anchor = visible.includes(app.pageSelectionAnchorId)
+          ? app.pageSelectionAnchorId
+          : app.currentPageId;
+        const from = visible.indexOf(anchor);
+        const to = visible.indexOf(pageId);
+        if (from < 0 || to < 0) {
+          setPageSelection([pageId], { current: pageId });
+          return;
+        }
+        const range = visible.slice(Math.min(from, to), Math.max(from, to) + 1);
+        // The anchor is kept, so extending the range with further Shift+clicks works from the
+        // row the range started at rather than walking away from it.
+        setPageSelection(range, { current: pageId, anchor: false });
+      }
+
+      function selectAllPages() {
+        if (!app.document.storyBook.pageOrder.length) return;
+        setPageSelection(app.document.storyBook.pageOrder.slice(), { current: app.currentPageId });
+      }
+
       function getPageGroups() {
         const map = {};
         for (const item of getStructure()) {
@@ -4119,6 +4385,16 @@
         structure.push({ type: 'page', id: pageId });
       }
 
+      // Append a page-ref at the end of a group-ref. The one placement that cannot be
+      // expressed as "adjacent to a page": an empty chapter has no page to anchor to, which
+      // is why it was impossible to add anything to one before this existed.
+      function structAppendPageToGroup(pageId, groupId) {
+        const group = getPageGroup(groupId);
+        if (!group) return false;
+        group.pages.push(pageId);
+        return true;
+      }
+
       // The only writer of pageOrder and page.groupId — both are projections of the structure.
       function syncDerivedFromStructure(doc = app.document) {
         const storyBook = doc && doc.storyBook;
@@ -4169,7 +4445,7 @@
               const meta = legacyGroups[groupId];
               groupRef = {
                 type: 'group', id: groupId,
-                name: String(meta.name || 'Group'), collapsed: Boolean(meta.collapsed), pages: []
+                name: String(meta.name || 'Chapter'), collapsed: Boolean(meta.collapsed), pages: []
               };
               groupRefById.set(groupId, groupRef);
               structure.push(groupRef);
@@ -4204,7 +4480,7 @@
             clean.push({
               type: 'group',
               id: item.id || createId('group'),
-              name: String(item.name || meta.name || 'Group'),
+              name: String(item.name || meta.name || 'Chapter'),
               collapsed: Boolean(item.collapsed !== undefined ? item.collapsed : meta.collapsed),
               pages: groupPages
             });
@@ -4254,7 +4530,7 @@
           if (run.groupId) {
             structure.push({
               type: 'group', id: run.groupId,
-              name: run.group ? run.group.name : 'Group',
+              name: run.group ? run.group.name : 'Chapter',
               collapsed: run.group ? Boolean(run.group.collapsed) : false,
               pages: [...run.pageIds]
             });
@@ -4269,16 +4545,39 @@
       // removes this so scaffold-first empty chapters can persist.
 
       // Wrap a single page in a new group in place.
-      function createPageGroup(seedPageId) {
+      // Moves a page into a chapter created for it. Framed as a move rather than a creation
+      // because that is what it does: the page leaves wherever it was. The new chapter lands as
+      // close to the page's old position as possible — in its slot when the page was ungrouped,
+      // or directly after its former chapter when it was not.
+      function movePageToNewChapter(seedPageId) {
+        movePagesToNewChapter([seedPageId]);
+      }
+
+      // With several pages this is the gather operation: scattered pages, even across chapters,
+      // collected into one new chapter. The chapter takes the position of the first of them in
+      // document order, which extends the single-page rule of landing where the page was.
+      function movePagesToNewChapter(pageIds) {
         if (app.mode !== 'edit') return;
-        const page = app.document.pages[seedPageId] || getCurrentPage();
+        const order = app.document.storyBook.pageOrder;
+        const movers = order.filter((id) => (pageIds || []).includes(id));
+        const seedPageId = movers[0] || app.currentPageId;
+        const page = app.document.pages[seedPageId];
         if (!page) return;
         captureHistory();
+        const members = movers.length ? movers.slice() : [page.id];
+        // Every page but the seed is pulled out of its old container first. Doing it afterwards
+        // would mean looking each page up while it already sits in the new chapter, and
+        // findPageLocation returns the first match — so a page positioned after the new chapter
+        // would resolve to it and be left behind as a second, duplicate ref.
+        for (const pageId of members) {
+          if (pageId !== seedPageId) structRemovePage(pageId);
+        }
         const groupCount = getStructure().filter((item) => item.type === 'group').length;
         const groupItem = {
           type: 'group', id: createId('group'),
-          name: `Group ${groupCount + 1}`, collapsed: false, pages: [page.id]
+          name: `Chapter ${groupCount + 1}`, collapsed: false, pages: members
         };
+        // The seed is still where it was, so the chapter can take its place.
         const loc = findPageLocation(page.id);
         if (loc && !loc.group) {
           getStructure().splice(loc.topIndex, 1, groupItem);
@@ -4291,7 +4590,22 @@
         syncDerivedFromStructure();
         setDirty();
         renderAll();
-        els.statusText.textContent = `Created ${groupItem.name}`;
+        els.statusText.textContent = groupItem.pages.length > 1
+          ? `Moved ${groupItem.pages.length} pages to ${groupItem.name}`
+          : `Moved ${page.name} to ${groupItem.name}`;
+        // The moment the chapter exists is the moment its name is known, so the auto-assigned
+        // one is offered for typing over rather than left for a later double-click.
+        startInlineRenameForGroup(groupItem.id);
+      }
+
+      // Opens the inline rename editor on a chapter header that has just been rendered. The
+      // header is rebuilt by renderAll, so it can only be found afterwards, by id.
+      function startInlineRenameForGroup(groupId) {
+        const group = getPageGroup(groupId);
+        if (!group) return;
+        const label = els.pageList.querySelector(`[data-group-id="${groupId}"] .page-group-label`);
+        if (!label) return;
+        startInlineRename(label, group.name, (nextName) => renamePageGroupTo(groupId, nextName));
       }
 
       // Scaffold-first: append a new empty chapter. Pages are dragged in afterwards. This is
@@ -4312,6 +4626,30 @@
         els.statusText.textContent = `Created empty ${groupItem.name}`;
       }
 
+      // Add a page at the end of a chapter, whether or not it already has pages. A collapsed
+      // chapter is expanded first, since the new page becomes current and would otherwise be
+      // hidden. Expanding before createPage's captureHistory keeps it out of the undo step,
+      // matching how collapse state is treated everywhere else.
+      function addPageToGroup(groupId) {
+        if (app.mode !== 'edit') return;
+        const group = getPageGroup(groupId);
+        if (!group) return;
+        if (group.collapsed) group.collapsed = false;
+        createPage(null, { intoGroupId: groupId });
+        els.statusText.textContent = `Added a page to ${group.name}`;
+      }
+
+      // Paste is the third way to put content in a chapter, beside a new page and dropped image
+      // files. Expanding first for the same reason: the pasted pages become the selection, and
+      // would otherwise land somewhere the user cannot see.
+      function pasteIntoGroup(groupId) {
+        if (app.mode !== 'edit') return;
+        const group = getPageGroup(groupId);
+        if (!group || !app.clipboardPages.length) return;
+        if (group.collapsed) group.collapsed = false;
+        pasteClipboardPage({ intoGroupId: groupId });
+      }
+
       // Removes the grouping, never the pages: the group-ref is replaced by its page-refs
       // in place, so the pages keep their position. An empty group is simply removed.
       function deletePageGroup(groupId) {
@@ -4325,32 +4663,54 @@
         syncDerivedFromStructure();
         setDirty();
         renderAll();
-        els.statusText.textContent = `Ungrouped pages from ${group.name}`;
+        els.statusText.textContent = `Removed ${group.name}; its pages were kept`;
       }
 
-      // Move a page into a group (appended) or out of one. Leaving a group places the page as a
-      // top-level ref immediately after that group, so the group stays contiguous.
       function setPageGroup(pageId, groupId) {
+        setPagesGroup([pageId], groupId);
+      }
+
+      // Move pages into a chapter (appended) or out of one. Leaving a chapter places the page as
+      // a top-level ref immediately after that chapter, so the chapter stays contiguous.
+      // A batch may span chapters, so each page is judged against its own container.
+      function setPagesGroup(pageIds, groupId) {
         if (app.mode !== 'edit') return;
-        const page = app.document.pages[pageId];
-        if (!page) return;
         const target = groupId && getPageGroup(groupId) ? groupId : null;
-        const loc = findPageLocation(pageId);
-        const currentGroupId = loc && loc.group ? loc.group.id : null;
-        if (currentGroupId === target) return;
+        // Pages already where they are being sent are skipped, so a mixed selection moves only
+        // what actually needs moving and a no-op batch captures no history.
+        const movers = (pageIds || []).filter((id) => {
+          if (!app.document.pages[id]) return false;
+          const loc = findPageLocation(id);
+          return (loc && loc.group ? loc.group.id : null) !== target;
+        });
+        if (!movers.length) return;
         captureHistory();
-        const fromGroup = loc && loc.group ? loc.group : null;
-        structRemovePage(pageId);
-        if (target) {
-          getPageGroup(target).pages.push(pageId);
-        } else if (fromGroup) {
-          getStructure().splice(findGroupIndex(fromGroup.id) + 1, 0, { type: 'page', id: pageId });
-        } else {
-          getStructure().push({ type: 'page', id: pageId });
+        for (const pageId of movers) {
+          const loc = findPageLocation(pageId);
+          const fromGroup = loc && loc.group ? loc.group : null;
+          structRemovePage(pageId);
+          if (target) {
+            getPageGroup(target).pages.push(pageId);
+          } else if (fromGroup) {
+            // Inserted one past the chapter each time, so a batch leaving together keeps its
+            // order rather than reversing as each page is placed at the same index.
+            const at = findGroupIndex(fromGroup.id) + 1;
+            let offset = 0;
+            const structure = getStructure();
+            while (structure[at + offset] && structure[at + offset].type === 'page'
+              && movers.includes(structure[at + offset].id)) offset += 1;
+            structure.splice(at + offset, 0, { type: 'page', id: pageId });
+          } else {
+            getStructure().push({ type: 'page', id: pageId });
+          }
         }
         syncDerivedFromStructure();
         setDirty();
         renderAll();
+        if (movers.length > 1) {
+          const where = target ? getPageGroup(target).name : 'no chapter';
+          els.statusText.textContent = `Moved ${movers.length} pages to ${where}`;
+        }
       }
 
       function togglePageGroupCollapsed(groupId) {
@@ -4392,12 +4752,25 @@
         syncDerivedFromStructure();
       }
 
-      async function importDroppedRows(rows, page, basePoint, newPageMode) {
+      async function importDroppedRows(rows, page, basePoint, newPageMode, options = {}) {
+        const intoGroupId = options.intoGroupId || null;
+        // Each new page takes its own image's pixel size instead of the book's default, which
+        // is what a book of scans or screenshots wants: one page per image, at its own size.
+        const pageSizeFromImage = Boolean(options.pageSizeFromImage) && newPageMode;
         let addedCount = 0;
         let newPageCount = 0;
         let skippedCount = 0;
+        let sizedFromImageCount = 0;
+        let unmeasuredCount = 0;
         let mutationStarted = false;
-        let lastInsertedPageId = page.id;
+        // Each new page is inserted after the previous one, so the batch keeps its order. The
+        // seed decides where the batch begins: the current page for a canvas drop, or the
+        // chapter's last page for a chapter drop, which appends to the end of that chapter.
+        let lastInsertedPageId = page ? page.id : null;
+        if (intoGroupId) {
+          const group = getPageGroup(intoGroupId);
+          lastInsertedPageId = group && group.pages.length ? group.pages[group.pages.length - 1] : null;
+        }
 
         for (let i = 0; i < rows.length; i += 1) {
           const row = rows[i];
@@ -4413,8 +4786,20 @@
 
           if (newPageMode && row.kind === 'image') {
             try {
-              const docWidth = Number(app.document.storyBook.width || 1200);
-              const docHeight = Number(app.document.storyBook.height || 800);
+              let docWidth = Number(app.document.storyBook.width || 1200);
+              let docHeight = Number(app.document.storyBook.height || 800);
+              if (pageSizeFromImage) {
+                const measured = await readImageSize(row.file);
+                if (measured) {
+                  docWidth = measured.width;
+                  docHeight = measured.height;
+                  sizedFromImageCount += 1;
+                } else {
+                  // A file that will not decode still gets a page; it falls back to the book's
+                  // default size and is reported, rather than being skipped for want of a size.
+                  unmeasuredCount += 1;
+                }
+              }
               const newPageId = createId('page');
               const newPageObj = {
                 id: newPageId,
@@ -4425,7 +4810,16 @@
                 background: { type: 'solid', color: '#ffffff' },
                 elementOrder: []
               };
-              insertPageAfter(lastInsertedPageId, newPageObj);
+              if (lastInsertedPageId) {
+                insertPageAfter(lastInsertedPageId, newPageObj);
+              } else if (intoGroupId) {
+                // First page into an empty chapter: there is no neighbour to insert beside.
+                app.document.pages[newPageId] = newPageObj;
+                structAppendPageToGroup(newPageId, intoGroupId);
+                syncDerivedFromStructure();
+              } else {
+                insertPageAfter(null, newPageObj);
+              }
               lastInsertedPageId = newPageId;
 
               let element = null;
@@ -4451,6 +4845,14 @@
               console.error(error);
               skippedCount += 1;
             }
+            continue;
+          }
+
+          // Everything below places an element on a page. A chapter drop has no page to place
+          // it on, so a non-image file (video, audio) is reported as skipped rather than
+          // silently landing on whatever page happens to be current.
+          if (!page) {
+            skippedCount += 1;
             continue;
           }
 
@@ -4507,13 +4909,21 @@
           setDirty();
           renderAll();
         }
-        return { addedCount, newPageCount, skippedCount };
+        return { addedCount, newPageCount, skippedCount, sizedFromImageCount, unmeasuredCount };
       }
 
-      async function handleDroppedResources(event) {
+      // Handles a file drop against one of two destinations: the canvas, where resources become
+      // elements on the current page, or a chapter in the page list, where images become new
+      // pages appended to that chapter. A chapter has no canvas to position anything on, so a
+      // chapter drop can only mean new pages and the review dialog's toggle is forced on.
+      async function handleDroppedResources(event, target = null) {
         if (app.mode !== 'edit') return;
-        const page = getCurrentPage();
-        if (!page) return;
+        const group = target && target.groupId ? getPageGroup(target.groupId) : null;
+        const page = group ? null : getCurrentPage();
+        if (!group && !page) return;
+        // Reference paths are resolved against the current page even for a chapter drop: the
+        // base path is a page/document setting, and the chapter may hold no page to ask.
+        const pathContextPageId = page ? page.id : app.currentPageId;
         try {
           const dataTransfer = event.dataTransfer;
           const files = await getDroppedFiles(dataTransfer);
@@ -4524,13 +4934,16 @@
 
           const uriList = parseDroppedFileUriList(dataTransfer);
           const dropMode = getDropMode();
-          const basePoint = getDropPointOnPage(event, page);
-          const reviewRows = createDropReviewRows(files, uriList, dropMode, page.id);
+          const basePoint = page ? getDropPointOnPage(event, page) : { x: 0, y: 0 };
+          const reviewRows = createDropReviewRows(files, uriList, dropMode, pathContextPageId);
           // Session memory wins over the document base path so repeat imports stay put.
           const initialGlobalPath = typeof app.lastImportDirPath === 'string'
             ? app.lastImportDirPath
-            : getEffectiveImageBasePath(page.id);
-          const reviewResult = await openDropReviewDialog(reviewRows, initialGlobalPath);
+            : getEffectiveImageBasePath(pathContextPageId);
+          const reviewResult = await openDropReviewDialog(reviewRows, initialGlobalPath, {
+            forceNewPages: Boolean(group),
+            destinationName: group ? group.name : null
+          });
           if (!reviewResult.approved) {
             els.statusText.textContent = 'Drop import canceled';
             return;
@@ -4539,11 +4952,22 @@
             app.lastImportDirPath = normalizeReferencePath(els.dropReviewGlobalPath.value || '');
           }
 
-          const { addedCount, newPageCount, skippedCount } = await importDroppedRows(reviewResult.rows, page, basePoint, reviewResult.newPageMode);
+          const { addedCount, newPageCount, skippedCount, sizedFromImageCount, unmeasuredCount } =
+            await importDroppedRows(
+              reviewResult.rows, page, basePoint, reviewResult.newPageMode,
+              {
+                intoGroupId: group ? group.id : null,
+                pageSizeFromImage: reviewResult.pageSizeFromImage
+              }
+            );
 
           const parts = [];
           if (addedCount) parts.push(`Added ${addedCount} resource${addedCount === 1 ? '' : 's'}`);
           if (newPageCount) parts.push(`Created ${newPageCount} new page${newPageCount === 1 ? '' : 's'}`);
+          if (sizedFromImageCount) parts.push(`${sizedFromImageCount} sized from ${sizedFromImageCount === 1 ? 'its image' : 'their images'}`);
+          // Named separately: a page at the default size among pages sized from their images is
+          // a visible oddity, and the user should know which outcome they got.
+          if (unmeasuredCount) parts.push(`${unmeasuredCount} could not be measured and used the default size`);
           if (skippedCount) parts.push(`${skippedCount} item${skippedCount === 1 ? '' : 's'} skipped`);
           if (parts.length) {
             els.statusText.textContent = parts.join('; ');
@@ -4570,6 +4994,8 @@
         // A new page lands directly after the page it was created from and joins that page's
         // group (inherited from the anchor's container in the structure), matching duplicate
         // and paste. Falling through to the end would silently land it wherever the book ends.
+        // `intoGroupId` is the exception: it names a chapter rather than a neighbouring page,
+        // which is the only way to reach a chapter holding no pages yet.
         const anchorPageId = options.afterPageId || app.currentPageId;
         const page = {
           id: pageId,
@@ -4581,7 +5007,9 @@
           elementOrder: []
         };
         app.document.pages[pageId] = page;
-        structInsertPageAdjacent(pageId, app.document.pages[anchorPageId] ? anchorPageId : null, false);
+        if (!options.intoGroupId || !structAppendPageToGroup(pageId, options.intoGroupId)) {
+          structInsertPageAdjacent(pageId, app.document.pages[anchorPageId] ? anchorPageId : null, false);
+        }
         syncDerivedFromStructure();
         app.document.appState.currentPageId = pageId;
         app.currentPageId = pageId;
@@ -4615,133 +5043,267 @@
         }
       }
 
-      function duplicateSelectedPage() {
-        const page = getCurrentPage();
-        if (app.mode !== 'edit') return;
-        if (!page) return;
-        duplicatePageById(page.id);
+      function duplicatePageById(pageId) {
+        duplicatePages([pageId]);
       }
 
-      function duplicatePageById(pageId) {
+      // Each copy lands directly after its own source, so a selection spanning chapters
+      // produces copies that each stay in their source's chapter. Inserting the whole batch
+      // after the last selected page would drag copies out of the chapters they came from.
+      function duplicatePages(pageIds) {
         if (app.mode !== 'edit') return;
-        const source = app.document.pages[pageId];
-        if (!source) return;
+        const sources = (pageIds || []).filter((id) => app.document.pages[id]);
+        if (!sources.length) return;
         captureHistory();
-        const nextPageId = createId('page');
-        const duplicatedPage = {
-          id: nextPageId,
-          name: `${source.name} Copy`,
-          width: source.width,
-          height: source.height,
-          imagePath: normalizeImageBasePath(source.imagePath || ''),
-          background: cloneDoc(source.background || { type: 'solid', color: '#ffffff' }),
-          elementOrder: []
-        };
-        app.document.pages[nextPageId] = duplicatedPage;
-        // Inserted directly after its source, in the source's container, so it shares its group.
-        structInsertPageAdjacent(nextPageId, pageId, false);
+        const copies = [];
+        for (const pageId of sources) {
+          const source = app.document.pages[pageId];
+          const nextPageId = createId('page');
+          const duplicatedPage = {
+            id: nextPageId,
+            name: `${source.name} Copy`,
+            width: source.width,
+            height: source.height,
+            imagePath: normalizeImageBasePath(source.imagePath || ''),
+            background: cloneDoc(source.background || { type: 'solid', color: '#ffffff' }),
+            elementOrder: []
+          };
+          app.document.pages[nextPageId] = duplicatedPage;
+          // Inserted directly after its source, in the source's container, so it shares its group.
+          structInsertPageAdjacent(nextPageId, pageId, false);
+          clonePageElements(source, nextPageId, duplicatedPage.elementOrder);
+          copies.push(nextPageId);
+        }
         syncDerivedFromStructure();
-        clonePageElements(source, nextPageId, duplicatedPage.elementOrder);
-        app.currentPageId = nextPageId;
-        app.document.appState.currentPageId = nextPageId;
+        // The copies are what you now have in hand, so they become the selection and can be
+        // moved somewhere without being picked out again.
+        setPageSelection(copies, { current: copies[0] });
         app.selectedElementId = null;
         setDirty();
         renderAll();
+        if (copies.length > 1) els.statusText.textContent = `Duplicated ${copies.length} pages`;
       }
 
       function deletePageById(pageId) {
+        deletePages([pageId]);
+      }
+
+      function deletePages(pageIds) {
         if (app.mode !== 'edit') return;
-        const page = app.document.pages[pageId];
-        if (!page) return;
-        if (app.document.storyBook.pageOrder.length === 1) {
+        const targets = (pageIds || []).filter((id) => app.document.pages[id]);
+        if (!targets.length) return;
+        const order = app.document.storyBook.pageOrder;
+        // The book must keep a page, so a selection covering all of them is refused outright
+        // rather than being silently trimmed to all-but-one.
+        if (targets.length >= order.length) {
           alert('A story book must have at least one page.');
           return;
         }
-        if (!confirm(`Delete ${page.name}?`)) return;
+        const label = targets.length === 1
+          ? app.document.pages[targets[0]].name
+          : `${targets.length} pages`;
+        if (!confirm(`Delete ${label}?`)) return;
 
         captureHistory();
-        const removedIndex = app.document.storyBook.pageOrder.indexOf(page.id);
-        for (const elementId of page.elementOrder) {
-          delete app.document.elements[elementId];
+        // Taken before the removals, so the survivor is chosen by where the batch used to be.
+        const removedIndex = order.indexOf(targets[0]);
+        for (const pageId of targets) {
+          const page = app.document.pages[pageId];
+          for (const elementId of page.elementOrder) {
+            delete app.document.elements[elementId];
+          }
+          delete app.document.pages[pageId];
+          structRemovePage(pageId);
         }
-        delete app.document.pages[page.id];
-        structRemovePage(page.id);
         syncDerivedFromStructure();
 
-        if (app.currentPageId === page.id) {
-          const nextIndex = Math.min(removedIndex, app.document.storyBook.pageOrder.length - 1);
-          app.currentPageId = app.document.storyBook.pageOrder[Math.max(0, nextIndex)] || null;
-          app.selectedElementId = null;
-        }
+        const nextOrder = app.document.storyBook.pageOrder;
+        const nextIndex = Math.max(0, Math.min(removedIndex, nextOrder.length - 1));
+        const nextPageId = nextOrder[nextIndex] || null;
+        app.currentPageId = nextPageId;
+        app.document.appState.currentPageId = nextPageId;
+        app.selectedElementId = null;
+        setPageSelection(nextPageId ? [nextPageId] : [], { current: nextPageId });
         setDirty();
         renderAll();
+        if (targets.length > 1) els.statusText.textContent = `Deleted ${targets.length} pages`;
       }
 
       function copyCurrentPage() {
-        const page = getCurrentPage();
-        if (!page || app.mode !== 'edit') return;
-        app.clipboardPage = cloneDoc(page);
-        els.statusText.textContent = 'Page copied';
+        copyPages(getActionPageIds());
+      }
+
+      // The clipboard holds whole pages, deep-cloned at copy time, so editing or deleting the
+      // originals afterwards cannot change what gets pasted. Session-only: never serialized.
+      function copyPages(pageIds) {
+        if (app.mode !== 'edit') return;
+        const sources = (pageIds || []).filter((id) => app.document.pages[id]);
+        if (!sources.length) return;
+        app.clipboardPages = sources.map((id) => cloneDoc(app.document.pages[id]));
+        els.statusText.textContent = sources.length === 1
+          ? 'Page copied'
+          : `${sources.length} pages copied`;
         renderAll();
       }
 
-      function pasteClipboardPage() {
-        if (!app.clipboardPage || app.mode !== 'edit') return;
+      function pasteClipboardPage(options = {}) {
+        if (!app.clipboardPages.length || app.mode !== 'edit') return;
+        // Pasting into a chapter appends to its end, matching Add Page to Chapter and dropped
+        // images. Without a target the block follows the current page, joining its container.
+        const intoGroupId = options.intoGroupId && getPageGroup(options.intoGroupId)
+          ? options.intoGroupId
+          : null;
         captureHistory();
-        const source = app.clipboardPage;
-        const pageId = createId('page');
-        const page = {
-          id: pageId,
-          name: `${source.name} Copy`,
-          width: source.width,
-          height: source.height,
-          imagePath: normalizeImageBasePath(source.imagePath || ''),
-          background: cloneDoc(source.background || { type: 'solid', color: '#ffffff' }),
-          elementOrder: []
-        };
-        app.document.pages[pageId] = page;
-        // Pasted directly after the current page, in its container, so it joins that group.
-        structInsertPageAdjacent(pageId, app.currentPageId, false);
+        const pasted = [];
+        // Each pasted page follows the one before it, so a copied block keeps its order and
+        // lands as a block. The first joins the current page's container, hence its chapter.
+        let anchorPageId = app.currentPageId;
+        if (intoGroupId) {
+          const group = getPageGroup(intoGroupId);
+          // An empty chapter has no page to insert beside, which is the case that makes this
+          // an action of its own rather than something reachable by navigating first.
+          anchorPageId = group.pages.length ? group.pages[group.pages.length - 1] : null;
+        }
+        for (const source of app.clipboardPages) {
+          const pageId = createId('page');
+          const page = {
+            id: pageId,
+            name: `${source.name} Copy`,
+            width: source.width,
+            height: source.height,
+            imagePath: normalizeImageBasePath(source.imagePath || ''),
+            background: cloneDoc(source.background || { type: 'solid', color: '#ffffff' }),
+            elementOrder: []
+          };
+          app.document.pages[pageId] = page;
+          if (anchorPageId) {
+            structInsertPageAdjacent(pageId, anchorPageId, false);
+          } else if (intoGroupId) {
+            structAppendPageToGroup(pageId, intoGroupId);
+          } else {
+            structInsertPageAdjacent(pageId, null, false);
+          }
+          clonePageElements(source, pageId, page.elementOrder);
+          pasted.push(pageId);
+          anchorPageId = pageId;
+        }
         syncDerivedFromStructure();
-        clonePageElements(source, pageId, page.elementOrder);
-        app.currentPageId = pageId;
-        app.document.appState.currentPageId = pageId;
+        setPageSelection(pasted, { current: pasted[0] });
         app.selectedElementId = null;
         setDirty();
         renderAll();
+        if (intoGroupId) {
+          const name = getPageGroup(intoGroupId).name;
+          els.statusText.textContent = pasted.length === 1
+            ? `Pasted a page into ${name}`
+            : `Pasted ${pasted.length} pages into ${name}`;
+        } else if (pasted.length > 1) {
+          els.statusText.textContent = `Pasted ${pasted.length} pages`;
+        }
       }
 
-      // Move the current page one step within its own container (a group's page list, or the
-      // top level). Swapping only with an adjacent page keeps groups contiguous; a move that
-      // would cross a group boundary is clamped rather than silently changing the page's group.
+      // The slot a page would move into, or null when it cannot. Each page moves only within
+      // its own container (a chapter's page list, or the top level): a move that would cross a
+      // chapter boundary is clamped rather than silently changing the page's chapter, so
+      // Up/Down reorders within a chapter while dragging is what moves a page between them.
+      function getPageMoveTarget(pageId, direction, blocked) {
+        const loc = findPageLocation(pageId);
+        if (!loc) return null;
+        const list = loc.group ? loc.group.pages : getStructure();
+        const from = loc.group ? loc.within : loc.topIndex;
+        const to = from + direction;
+        if (to < 0 || to >= list.length) return null;
+        const neighbour = loc.group ? list[to] : (list[to].type === 'page' ? list[to].id : null);
+        // A group-ref at the top level is a boundary, not something to swap with.
+        if (!neighbour) return null;
+        // A selected page never swaps past another selected page, or the block would scramble
+        // its own order. A scattered selection therefore packs against the boundary first and
+        // then travels as a unit.
+        if (blocked && blocked.has(neighbour)) return null;
+        return { list, from, to };
+      }
+
+      function canMovePages(pageIds, direction) {
+        const blocked = new Set(pageIds);
+        // If any page has a free neighbour it will move, and if none has, nothing can: every
+        // other page is held up by a page that is itself held up, all the way to the boundary.
+        return pageIds.some((pageId) => getPageMoveTarget(pageId, direction, blocked));
+      }
+
       function moveCurrentPage(direction) {
-        const page = getCurrentPage();
-        if (!page || app.mode !== 'edit') return;
-        const loc = findPageLocation(page.id);
-        if (!loc) return;
-        if (loc.group) {
-          const pages = loc.group.pages;
-          const target = loc.within + direction;
-          if (target < 0 || target >= pages.length) return;
-          captureHistory();
-          [pages[loc.within], pages[target]] = [pages[target], pages[loc.within]];
-        } else {
-          const structure = getStructure();
-          const target = loc.topIndex + direction;
-          if (target < 0 || target >= structure.length || structure[target].type !== 'page') return;
-          captureHistory();
-          [structure[loc.topIndex], structure[target]] = [structure[target], structure[loc.topIndex]];
+        moveSelectedPages(direction);
+      }
+
+      function moveSelectedPages(direction) {
+        if (app.mode !== 'edit') return;
+        const ids = getActionPageIds();
+        if (!ids.length || !canMovePages(ids, direction)) return;
+        const blocked = new Set(ids);
+        captureHistory();
+        // Moving up, the topmost page goes first; moving down, the bottom one does. The other
+        // order would have each page blocked by a sibling that has not moved out of the way yet.
+        const sequence = direction < 0 ? ids : ids.slice().reverse();
+        let moved = 0;
+        let clamped = 0;
+        for (const pageId of sequence) {
+          const target = getPageMoveTarget(pageId, direction, blocked);
+          if (!target) { clamped += 1; continue; }
+          const { list, from, to } = target;
+          [list[from], list[to]] = [list[to], list[from]];
+          moved += 1;
         }
         syncDerivedFromStructure();
         setDirty();
         renderAll();
+        if (ids.length > 1) {
+          const where = direction < 0 ? 'up' : 'down';
+          els.statusText.textContent = clamped
+            ? `Moved ${moved} page${moved === 1 ? '' : 's'} ${where}; ${clamped} already at the edge of its chapter`
+            : `Moved ${moved} pages ${where}`;
+        }
       }
 
-      function deleteCurrentPage() {
-        const page = getCurrentPage();
-        if (app.mode !== 'edit') return;
-        if (!page) return;
-        deletePageById(page.id);
+      // Relocate a block of pages next to a target page, keeping their relative order. Used by
+      // drag and drop, where the block adopts the target's container and so its chapter.
+      function movePagesAdjacentToPage(pageIds, targetPageId, before) {
+        const ordered = app.document.storyBook.pageOrder
+          .filter((id) => pageIds.includes(id) && id !== targetPageId);
+        if (!ordered.length) return [];
+        for (const pageId of ordered) structRemovePage(pageId);
+        // Only the first lands against the target; each page after it follows the one before,
+        // or inserting them all at the same point would reverse the block.
+        let anchorPageId = targetPageId;
+        let first = true;
+        for (const pageId of ordered) {
+          structInsertPageAdjacent(pageId, anchorPageId, first ? before : false);
+          anchorPageId = pageId;
+          first = false;
+        }
+        return ordered;
+      }
+
+      function movePagesIntoGroupAt(pageIds, groupId, atHead) {
+        const group = getPageGroup(groupId);
+        if (!group) return [];
+        const ordered = app.document.storyBook.pageOrder.filter((id) => pageIds.includes(id));
+        if (!ordered.length) return [];
+        for (const pageId of ordered) structRemovePage(pageId);
+        if (atHead) group.pages.unshift(...ordered);
+        else group.pages.push(...ordered);
+        return ordered;
+      }
+
+      // What a page drag carries: the whole selection when the dragged row is part of it, or
+      // that row alone. The canvas title names one page, so a drag from it never widens.
+      function getDraggedPageIds() {
+        const dragged = app.pageDragState.pageId;
+        if (!dragged) return [];
+        if (app.pageDragState.fromTitle) return [dragged];
+        return getActionPageIds(dragged);
+      }
+
+      function reportPagesMoved(count, where) {
+        if (count > 1) els.statusText.textContent = `Moved ${count} pages to ${where}`;
       }
 
       function addElement(element) {
@@ -5166,12 +5728,15 @@
         const header = document.createElement('div');
         header.className = `page-group-header${group.collapsed ? ' collapsed' : ''}`;
         header.setAttribute('draggable', app.mode === 'edit' ? 'true' : 'false');
+        // Lets a freshly created chapter be found after the re-render that built this node,
+        // which is how Move to New Chapter opens the rename editor on it.
+        header.dataset.groupId = group.id;
 
         const twisty = document.createElement('button');
         twisty.type = 'button';
         twisty.className = 'page-group-twisty';
         twisty.textContent = group.collapsed ? '▸' : '▾';
-        twisty.title = group.collapsed ? 'Expand group' : 'Collapse group';
+        twisty.title = group.collapsed ? 'Expand chapter' : 'Collapse chapter';
         twisty.setAttribute('aria-expanded', group.collapsed ? 'false' : 'true');
         twisty.addEventListener('click', (event) => {
           event.stopPropagation();
@@ -5207,21 +5772,36 @@
           event.stopPropagation();
           showContextMenu(event.clientX, event.clientY, [
             {
-              label: 'Rename Group',
-              onSelect: () => startInlineRename(label, group.name, (nextName) => renamePageGroupTo(group.id, nextName))
+              label: 'Add Page to Chapter',
+              onSelect: () => addPageToGroup(group.id)
             },
             {
-              label: 'Move Group Up',
+              label: app.clipboardPages.length > 1
+                ? `Paste ${app.clipboardPages.length} Pages into Chapter`
+                : 'Paste Page into Chapter',
+              disabled: !app.clipboardPages.length,
+              onSelect: () => pasteIntoGroup(group.id)
+            },
+            {
+              label: 'Rename Chapter',
+              onSelect: () => startInlineRename(label, group.name, (nextName) => renamePageGroupTo(group.id, nextName))
+            },
+            { separator: true },
+            {
+              label: 'Move Chapter Up',
               disabled: runIndex <= 0,
               onSelect: () => movePageGroupByOffset(group.id, -1)
             },
             {
-              label: 'Move Group Down',
+              label: 'Move Chapter Down',
               disabled: runIndex >= runCount - 1,
               onSelect: () => movePageGroupByOffset(group.id, 1)
             },
+            { separator: true },
             {
-              label: 'Ungroup Pages',
+              // The label carries the reassurance because this is the only chapter-level
+              // removal there is, and "Ungroup" did not say what happened to the pages.
+              label: 'Remove Chapter (Keep Pages)',
               danger: true,
               onSelect: () => deletePageGroup(group.id)
             }
@@ -5245,6 +5825,7 @@
         header.addEventListener('dragover', (event) => {
           if (app.mode !== 'edit') return;
           event.preventDefault();
+          if (!isPageReorderDragActive()) event.dataTransfer.dropEffect = 'copy';
           clearPageListDropHighlights();
           header.classList.add('drag-over');
         });
@@ -5254,19 +5835,26 @@
           event.preventDefault();
           event.stopPropagation();
           header.classList.remove('drag-over');
+          // Files dropped on a header import into that chapter. Anything with a page drag in
+          // flight is a reorder, so the two gestures never compete for the same drop.
+          if (!isPageReorderDragActive()) {
+            // Not awaited: dataTransfer items are readable only during dispatch, and
+            // handleDroppedResources reads them before its first await.
+            handleDroppedResources(event, { groupId: group.id });
+            return;
+          }
           if (dragState.runIndex !== null && dragState.runIndex !== runIndex) {
             movePageRunToRunIndex(dragState.runIndex, runIndex);
           } else if (dragState.pageId) {
-            // A page dropped on a header joins that group at its head.
-            const draggedId = dragState.pageId;
-            const groupItem = getPageGroup(run.groupId);
-            if (groupItem && app.document.pages[draggedId]) {
+            // Pages dropped on a header join that chapter at its head, keeping their order.
+            const dragged = getDraggedPageIds();
+            if (dragged.length && getPageGroup(run.groupId)) {
               captureHistory();
-              structRemovePage(draggedId);
-              groupItem.pages.unshift(draggedId);
+              const moved = movePagesIntoGroupAt(dragged, run.groupId, true);
               syncDerivedFromStructure();
               setDirty();
               renderAll();
+              reportPagesMoved(moved.length, group.name);
             }
           }
           dragState.runIndex = null;
@@ -5356,11 +5944,16 @@
           if (run.groupId && run.pageIds.length === 0) {
             const emptyHint = document.createElement('div');
             emptyHint.className = 'page-group-empty';
-            emptyHint.textContent = 'Empty chapter — drag pages here';
-            // A drop target so a dragged page joins this chapter, mirroring the header drop.
+            emptyHint.textContent = 'Empty chapter — click to add a page, or drop pages and images here';
+            emptyHint.title = 'Click to add a page. Existing pages and image files can also be dropped here.';
+            emptyHint.addEventListener('click', () => addPageToGroup(run.groupId));
+            // Two kinds of drag land here: an existing page being moved in, and image files
+            // being imported as new pages. They are told apart by whether a page drag is active.
             emptyHint.addEventListener('dragover', (event) => {
-              if (app.mode !== 'edit' || !dragState.pageId) return;
+              if (app.mode !== 'edit') return;
+              if (!dragState.pageId && !hasDroppedResourcePayload(event.dataTransfer)) return;
               event.preventDefault();
+              if (!dragState.pageId) event.dataTransfer.dropEffect = 'copy';
               clearPageListDropHighlights();
               emptyHint.classList.add('drag-over');
             });
@@ -5372,13 +5965,19 @@
               emptyHint.classList.remove('drag-over');
               const draggedId = dragState.pageId;
               const groupItem = getPageGroup(run.groupId);
-              if (draggedId && groupItem && app.document.pages[draggedId]) {
+              if (!draggedId && !isPageReorderDragActive()) {
+                // Called without await: dataTransfer items are only readable during dispatch,
+                // and handleDroppedResources reads them before its first await.
+                handleDroppedResources(event, { groupId: run.groupId });
+                return;
+              }
+              if (draggedId && groupItem) {
                 captureHistory();
-                structRemovePage(draggedId);
-                groupItem.pages.push(draggedId);
+                const moved = movePagesIntoGroupAt(getDraggedPageIds(), run.groupId, false);
                 syncDerivedFromStructure();
                 setDirty();
                 renderAll();
+                reportPagesMoved(moved.length, groupItem.name);
               }
               dragState.pageId = null;
               dragState.pageIndex = null;
@@ -5393,7 +5992,9 @@
 
           const item = document.createElement('div');
           const grouped = Boolean(runInfo && runInfo.run.groupId);
-          item.className = `page-item${pageId === app.currentPageId ? ' active' : ''}${grouped ? ' grouped' : ''}`;
+          const selectedRow = isPageSelected(pageId);
+          item.className = `page-item${pageId === app.currentPageId ? ' active' : ''}`
+            + `${selectedRow ? ' selected' : ''}${grouped ? ' grouped' : ''}`;
           item.setAttribute('draggable', app.mode === 'edit' ? 'true' : 'false');
           item.dataset.pageIndex = i;
           item.dataset.pageId = pageId;
@@ -5431,11 +6032,23 @@
 
           item.appendChild(main);
           item.appendChild(chevron);
-          item.addEventListener('click', () => {
+          item.addEventListener('click', (event) => {
+            if (event.ctrlKey || event.metaKey) {
+              togglePageInSelection(pageId);
+              renderAll();
+              return;
+            }
+            if (event.shiftKey) {
+              selectPageRangeTo(pageId);
+              renderAll();
+              return;
+            }
             // Re-rendering replaces this node, which would swallow the second click of a
             // double-click. When the click changes nothing there is nothing to re-render.
-            if (app.currentPageId === pageId && !app.selectedElementId) return;
-            app.currentPageId = pageId;
+            const selected = getSelectedPageIds();
+            const alreadyAlone = selected.length === 1 && selected[0] === pageId;
+            if (app.currentPageId === pageId && !app.selectedElementId && alreadyAlone) return;
+            setPageSelection([pageId], { current: pageId });
             app.selectedElementId = null;
             renderAll();
           });
@@ -5443,38 +6056,53 @@
             if (app.mode !== 'edit') return;
             event.preventDefault();
             event.stopPropagation();
-            app.currentPageId = pageId;
-            app.selectedElementId = null;
+            // Right-clicking inside the selection keeps it and acts on all of it; right-clicking
+            // outside replaces it, so the menu can never act on rows you cannot see it aimed at.
+            const targets = getActionPageIds(pageId);
+            if (!isPageSelected(pageId)) {
+              setPageSelection([pageId], { current: pageId });
+              app.selectedElementId = null;
+            }
+            const many = targets.length > 1;
             renderAll();
+            // A chapter is offered when at least one target page is not already in it, so a
+            // selection spanning chapters can still be gathered into any of them.
             const groupEntries = Object.values(getPageGroups())
-              .filter((group) => group.id !== (page.groupId || null))
+              .filter((group) => targets.some((id) => (app.document.pages[id]?.groupId || null) !== group.id))
               .map((group) => ({
-                label: `Move to ${group.name}`,
-                onSelect: () => setPageGroup(pageId, group.id)
+                label: many ? `Move ${targets.length} Pages to ${group.name}` : `Move to ${group.name}`,
+                onSelect: () => setPagesGroup(targets, group.id)
               }));
             showContextMenu(event.clientX, event.clientY, [
               {
-                label: 'Add New Page',
+                // "Add" read as "append to the end of the book", which is what Slice 43 stopped
+                // doing: the page lands directly after the one it was created from.
+                label: 'Insert Page After',
                 onSelect: () => createPage(null, { afterPageId: pageId })
               },
               {
-                label: 'Duplicate Page',
-                onSelect: () => duplicatePageById(pageId)
+                label: many ? `Duplicate ${targets.length} Pages` : 'Duplicate Page',
+                onSelect: () => duplicatePages(targets)
               },
-              {
-                label: 'New Group From Page',
-                onSelect: () => createPageGroup(pageId)
-              },
+              { separator: true },
+              // One "where does this page live" family. Moving to a new chapter belongs here
+              // rather than as its own concept: it is a move that creates its destination.
               ...groupEntries,
               {
-                label: 'Remove From Group',
-                disabled: !page.groupId,
-                onSelect: () => setPageGroup(pageId, null)
+                label: many ? `Move ${targets.length} Pages to New Chapter` : 'Move to New Chapter',
+                onSelect: () => movePagesToNewChapter(targets)
               },
               {
-                label: 'Delete Page',
+                label: many ? `Remove ${targets.length} Pages From Chapter` : 'Remove From Chapter',
+                // Offered while any target is in a chapter; those already outside one are skipped.
+                disabled: !targets.some((id) => app.document.pages[id]?.groupId),
+                onSelect: () => setPagesGroup(targets, null)
+              },
+              { separator: true },
+              {
+                label: many ? `Delete ${targets.length} Pages` : 'Delete Page',
                 danger: true,
-                onSelect: () => deletePageById(pageId)
+                onSelect: () => deletePages(targets)
               }
             ]);
           });
@@ -5484,6 +6112,7 @@
             dragState.pageIndex = i;
             dragState.pageId = pageId;
             dragState.runIndex = null;
+            dragState.fromTitle = false;
             item.classList.add('dragging');
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('text/plain', pageId);
@@ -5516,16 +6145,18 @@
               dragState.pageIndex = null;
               return;
             }
-            const draggedId = dragState.pageId;
-            if (draggedId && draggedId !== pageId && app.document.pages[draggedId]) {
+            const dragged = getDraggedPageIds().filter((id) => id !== pageId);
+            if (dragged.length) {
               captureHistory();
-              // The dragged page moves next to the drop target, into the target's container, so
-              // it adopts that page's group and the structure stays contiguous.
-              structRemovePage(draggedId);
-              structInsertPageAdjacent(draggedId, pageId, true);
+              // The dragged pages move next to the drop target, into the target's container, so
+              // they adopt that page's chapter and the structure stays contiguous.
+              const moved = movePagesAdjacentToPage(dragged, pageId, true);
               syncDerivedFromStructure();
               setDirty();
               renderAll();
+              reportPagesMoved(moved.length, app.document.pages[pageId].name
+                ? `before ${app.document.pages[pageId].name}`
+                : 'a new position');
             }
             dragState.pageIndex = null;
             dragState.pageId = null;
@@ -5938,7 +6569,7 @@
           event.stopPropagation();
           const point = getDropPointOnPage(event, page);
           showContextMenu(event.clientX, event.clientY, [
-            { label: 'Add New Page', onSelect: () => createPage() },
+            { label: 'Insert Page After', onSelect: () => createPage() },
             { label: 'Duplicate Page', onSelect: () => duplicatePageById(page.id) },
             {
               label: 'Delete Page',
@@ -5946,6 +6577,8 @@
               disabled: app.document.storyBook.pageOrder.length <= 1,
               onSelect: () => deletePageById(page.id)
             },
+            // Page actions above, element inserts below: the two halves act on different things.
+            { separator: true },
             { label: 'Add Text', onSelect: () => addElementFromCanvas('text', point.x, point.y) },
             { label: 'Add Image URL', onSelect: () => addElementFromCanvas('image', point.x, point.y) },
             { label: 'Add Video URL', onSelect: () => addElementFromCanvas('video', point.x, point.y) },
@@ -5975,12 +6608,33 @@
         buttons.nextPage.disabled = pageIndex < 0 || pageIndex >= pageOrder.length - 1;
         buttons.addPage.disabled = !isEdit;
         if (buttons.newGroup) buttons.newGroup.disabled = !isEdit || !getCurrentPage();
-        buttons.duplicatePage.disabled = !isEdit || !getCurrentPage();
-        buttons.movePageUp.disabled = !isEdit || pageIndex <= 0;
-        buttons.movePageDown.disabled = !isEdit || pageIndex < 0 || pageIndex >= pageOrder.length - 1;
-        buttons.copyPage.disabled = !isEdit || !getCurrentPage();
-        buttons.pastePage.disabled = !isEdit || !app.clipboardPage;
-        buttons.deletePage.disabled = !isEdit || !getCurrentPage() || app.document.storyBook.pageOrder.length === 1;
+        // Page actions read the selection, which always holds at least the current page. The
+        // labels carry the count so a button can never delete more than it says it will.
+        const selectedPages = getSelectedPageIds();
+        const selectedCount = selectedPages.length;
+        const manyPages = selectedCount > 1;
+        buttons.duplicatePage.disabled = !isEdit || !selectedCount;
+        setPageActionLabel(buttons.duplicatePage, manyPages ? `Duplicate ${selectedCount} Pages` : 'Duplicate Page');
+        // Enabled while anything in the selection can still move, so a batch that is partly
+        // against a chapter boundary is not refused outright.
+        buttons.movePageUp.disabled = !isEdit || !canMovePages(selectedPages, -1);
+        buttons.movePageDown.disabled = !isEdit || !canMovePages(selectedPages, 1);
+        setPageActionLabel(buttons.movePageUp, manyPages ? `Move ${selectedCount} Pages Up (Alt+↑)` : 'Move Page Up (Alt+↑)');
+        setPageActionLabel(buttons.movePageDown, manyPages ? `Move ${selectedCount} Pages Down (Alt+↓)` : 'Move Page Down (Alt+↓)');
+        buttons.copyPage.disabled = !isEdit || !selectedCount;
+        setPageActionLabel(buttons.copyPage, manyPages ? `Copy ${selectedCount} Pages` : 'Copy Page');
+        buttons.pastePage.disabled = !isEdit || !app.clipboardPages.length;
+        setPageActionLabel(buttons.pastePage, app.clipboardPages.length > 1
+          ? `Paste ${app.clipboardPages.length} Pages`
+          : 'Paste Page');
+        // Refused when the selection is the whole book: a story book must keep a page.
+        buttons.deletePage.disabled = !isEdit || !selectedCount || selectedCount >= pageOrder.length;
+        setPageActionLabel(buttons.deletePage, manyPages ? `Delete ${selectedCount} Pages` : 'Delete Page');
+        if (els.pageSelectionCount) {
+          // Silent at one, since every book always has a current page and "1 selected" would
+          // just be noise on a control that is never off.
+          els.pageSelectionCount.textContent = manyPages ? `${selectedCount} selected` : '';
+        }
         buttons.addText.disabled = !isEdit;
         buttons.addImage.disabled = !isEdit;
         buttons.addVideo.disabled = !isEdit;
@@ -6345,6 +6999,9 @@
           app.pageDragState.pageIndex = pageIndex;
           app.pageDragState.pageId = app.currentPageId;
           app.pageDragState.runIndex = null;
+          // The title names one page, so dragging it moves that page even when others are
+          // selected. Only a row drag, which starts on a visibly selected row, carries the set.
+          app.pageDragState.fromTitle = true;
           els.canvasPageTitle.classList.add('dragging');
           event.dataTransfer.effectAllowed = 'move';
           event.dataTransfer.setData('text/plain', app.currentPageId);
@@ -6363,8 +7020,8 @@
       buttons.movePageDown.addEventListener('click', () => moveCurrentPage(1));
       buttons.copyPage.addEventListener('click', () => copyCurrentPage());
       buttons.pastePage.addEventListener('click', () => pasteClipboardPage());
-      buttons.duplicatePage.addEventListener('click', () => duplicateSelectedPage());
-      buttons.deletePage.addEventListener('click', () => deleteCurrentPage());
+      buttons.duplicatePage.addEventListener('click', () => duplicatePages(getActionPageIds()));
+      buttons.deletePage.addEventListener('click', () => deletePages(getActionPageIds()));
       buttons.addText.addEventListener('click', () => {
         const page = getCurrentPage();
         if (!page) return;
@@ -6502,7 +7159,7 @@
         if (!page) return;
         const point = getDropPointOnPage(event, page);
         showContextMenu(event.clientX, event.clientY, [
-          { label: 'Add New Page', onSelect: () => createPage() },
+          { label: 'Insert Page After', onSelect: () => createPage() },
           { label: 'Duplicate Page', onSelect: () => duplicatePageById(page.id) },
           {
             label: 'Delete Page',
@@ -6510,6 +7167,7 @@
             disabled: app.document.storyBook.pageOrder.length <= 1,
             onSelect: () => deletePageById(page.id)
           },
+          { separator: true },
           { label: 'Add Text', onSelect: () => addElementFromCanvas('text', point.x, point.y) },
           { label: 'Add Image URL', onSelect: () => addElementFromCanvas('image', point.x, point.y) },
           { label: 'Add Video URL', onSelect: () => addElementFromCanvas('video', point.x, point.y) },
@@ -6743,6 +7401,16 @@
           }
           return;
         }
+        // Select every page. Scoped to the page list rather than the canvas, which has no
+        // multi-selection of its own; the browser's own select-all is suppressed either way.
+        if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'a'
+          && app.mode === 'edit' && !app.editingElementId) {
+          event.preventDefault();
+          selectAllPages();
+          renderAll();
+          els.statusText.textContent = `Selected ${getSelectedPageIds().length} pages`;
+          return;
+        }
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
           event.preventDefault();
           copySelectedElement();
@@ -6819,6 +7487,14 @@
           if (app.fullscreen) {
             event.preventDefault();
             setFullScreenMode(false);
+            return;
+          }
+          // Collapses a multi-selection back to the page on the canvas, before falling through
+          // to clearing the element selection. Escape undoes the most recent widening first.
+          if (getSelectedPageIds().length > 1) {
+            event.preventDefault();
+            setPageSelection([app.currentPageId], { current: app.currentPageId });
+            renderAll();
             return;
           }
           app.selectedElementId = null;
