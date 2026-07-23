@@ -645,6 +645,14 @@
       white-space: nowrap;
     }
 
+    /* Push the density and help dots to the right edge as a pair. Without this the row's
+       space-between scatters them, so the density toggle floated mid-row instead of sitting
+       with the help dot. The auto margin absorbs the free space, leaving the title and the
+       selection count packed together at the left. */
+    .page-panel-header .panel-heading-row #pageDensityBtn {
+      margin-left: auto;
+    }
+
     .page-item-main {
       display: flex;
       align-items: center;
@@ -1213,6 +1221,82 @@
       z-index: 3;
     }
 
+    /* Print / PDF export. The print root is built on demand, positioned off-screen while the
+       app is on screen, and becomes the only visible thing during printing. Named @page rules
+       for each distinct page size are injected at export time; these are the static parts. */
+    .print-root { display: none; }
+
+    .print-page {
+      position: relative;
+      overflow: hidden;
+      background: #ffffff;
+      /* Backgrounds and image colour are dropped by print engines unless this is set. */
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .print-page .element {
+      position: absolute;
+      overflow: hidden;
+      border-radius: 8px;
+    }
+
+    .print-page .element .content {
+      width: 100%;
+      height: 100%;
+      padding: 8px;
+      white-space: pre-wrap;
+      overflow: hidden;
+      box-sizing: border-box;
+    }
+
+    .print-page .element img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    /* Video and audio cannot exist in a PDF, so each draws a labelled box in its place — the
+       same stance as a missing asset, so the reader knows something interactive lived here. */
+    .print-media-placeholder {
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px;
+      text-align: center;
+      color: #334155;
+      background: repeating-linear-gradient(45deg, #e2e8f0, #e2e8f0 12px, #f1f5f9 12px, #f1f5f9 24px);
+      border: 1px solid #cbd5e1;
+      font-size: 0.8rem;
+    }
+
+    .print-media-placeholder .print-media-kind {
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-size: 0.72rem;
+    }
+
+    .print-media-placeholder .print-media-source {
+      word-break: break-all;
+      opacity: 0.8;
+    }
+
+    @media print {
+      /* Everything but the print root is removed from the printed output. */
+      body > *:not(.print-root) { display: none !important; }
+      .print-root { display: block !important; }
+      /* Each page is its own sheet; the last carries no trailing blank sheet. */
+      .print-page { break-after: page; break-inside: avoid; }
+      .print-page:last-child { break-after: auto; }
+    }
+
     .text-editor {
       position: absolute;
       z-index: 20;
@@ -1527,6 +1611,10 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v8"></path><path d="M5 3v18h8"></path><path d="M8 3v6h7"></path><path d="M17 17v6"></path><path d="M14 20h6"></path></svg>
             <span class="sr-only">Save As</span>
           </button>
+          <button class="icon-btn" id="exportPdfBtn" title="Export to PDF (opens the print dialog — choose Save as PDF)" aria-label="Export to PDF">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"></path><path d="M15 3v4h4"></path><path d="M9 13h6"></path><path d="M9 17h6"></path><path d="M9 9h2"></path></svg>
+            <span class="sr-only">Export to PDF</span>
+          </button>
         </div>
         <div class="icon-cluster" aria-label="History actions">
           <button class="icon-btn" id="undoBtn" title="Undo (Ctrl+Z)" aria-label="Undo">
@@ -1547,9 +1635,9 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="9" cy="10" r="1.5"></circle><path d="m21 16-5-5-4 4-2-2-5 5"></path></svg>
             <span class="sr-only">Add Image URL</span>
           </button>
-          <button class="icon-btn" id="addEmbeddedImageBtn" title="Add Embedded Image" aria-label="Add Embedded Image">
+          <button class="icon-btn" id="addEmbeddedImageBtn" title="Embed a file (image, video or audio) into the document" aria-label="Embed File">
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="m21 16-5-5-4 4-2-2-5 5"></path><path d="M18 4v4"></path><path d="M16 6h4"></path></svg>
-            <span class="sr-only">Add Embedded Image</span>
+            <span class="sr-only">Embed File</span>
           </button>
           <button class="icon-btn" id="addVideoBtn" title="Add Video URL" aria-label="Add Video URL">
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"></rect><path d="m16 10 5-3v10l-5-3z"></path><path class="fill" d="m9 10 4 2-4 2z"></path></svg>
@@ -1562,7 +1650,8 @@
         </div>
       </div>
       <input class="hidden" type="file" id="openFileInput" accept=".html,.htm,text/html">
-      <input class="hidden" type="file" id="embeddedImageInput" accept="image/*">
+      <!-- id is historical (was image-only); it now embeds any supported media kind. -->
+      <input class="hidden" type="file" id="embeddedImageInput" accept="image/*,video/*,audio/*">
       <!-- The page title lands here in full screen, filling the space the authoring groups vacate. -->
       <span class="title-slot" id="toolbarTitleSlot"></span>
       <div class="toolbar-group">
@@ -1580,14 +1669,10 @@
             <span class="sr-only">Zoom In</span>
           </button>
         </div>
-        <div class="icon-cluster" aria-label="Mode actions">
-          <button class="icon-btn" id="viewModeBtn" title="View Mode" aria-label="View Mode">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"></path><circle cx="12" cy="12" r="2.8"></circle></svg>
-            <span class="sr-only">View Mode</span>
-          </button>
-          <button class="icon-btn active" id="editModeBtn" title="Edit Mode" aria-label="Edit Mode">
+        <div class="icon-cluster" aria-label="Editing">
+          <button class="icon-btn active" id="editableBtn" title="Editable — click to turn editing on or off" aria-label="Editable" aria-pressed="true">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h6"></path><path d="m14.5 4.5 5 5"></path><path d="M8 19l10.5-10.5a2.1 2.1 0 0 0 0-3L18.5 4a2.1 2.1 0 0 0-3 0L5 14.5 4 20z"></path></svg>
-            <span class="sr-only">Edit Mode</span>
+            <span class="sr-only">Editable</span>
           </button>
         </div>
         <div class="icon-cluster" aria-label="Page navigation actions">
@@ -1598,6 +1683,16 @@
           <button class="icon-btn" id="nextPageBtn" title="Next Page" aria-label="Next Page" disabled="">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
             <span class="sr-only">Next Page</span>
+          </button>
+        </div>
+        <div class="icon-cluster" aria-label="Page layout">
+          <button class="icon-btn active" id="layoutSingleBtn" title="Single-page layout" aria-label="Single-page layout" aria-pressed="true">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="5" width="10" height="14" rx="1"></rect></svg>
+            <span class="sr-only">Single-page layout</span>
+          </button>
+          <button class="icon-btn" id="layoutDualBtn" title="Two-page (dual) layout — reading only, turns editing off" aria-label="Two-page layout" aria-pressed="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="8" height="14" rx="1"></rect><rect x="13" y="5" width="8" height="14" rx="1"></rect></svg>
+            <span class="sr-only">Two-page layout</span>
           </button>
         </div>
         <div class="icon-cluster" aria-label="View layout actions">
@@ -1620,7 +1715,7 @@
             <button type="button" class="dot-btn" id="pageDensityBtn" aria-label="Toggle compact page list"
                     title="Switch to compact list">▤</button>
             <button type="button" class="dot-btn help-dot" id="pageHelpBtn" aria-label="About page actions"
-                    title="Pages can be added, reordered, copied, pasted, duplicated, and deleted. Ctrl/Cmd+click picks out several pages, Shift+click selects a range, Ctrl/Cmd+A selects all, and Escape goes back to one. Selected pages move, duplicate, copy and delete together. Move Up/Down reorders within a chapter; dragging is what moves pages between chapters. Drag a page to reorder it, or right-click a page to move it to a chapter. Right-click a chapter header to add a page to it, paste pages into it, rename it, move it, or remove it while keeping its pages. Image files dropped on a chapter are imported as new pages in that chapter.">?</button>
+                    title="Pages can be added, reordered, copied, pasted, duplicated, and deleted. Ctrl/Cmd+click picks out several pages, Shift+click selects a range, Ctrl/Cmd+A selects all, and Escape goes back to one. Selected pages move, duplicate, copy and delete together. Move Up/Down reorders within a chapter; dragging is what moves pages between chapters. Drag a page to reorder it, or right-click a page to move it to a chapter. Ctrl/Cmd+click a chapter header to select all its pages. Right-click a chapter header to select, add a page, paste pages, rename, move, or remove it while keeping its pages. Image files dropped on a chapter are imported as new pages in that chapter.">?</button>
           </div>
           <div class="page-create-row">
             <button type="button" class="primary" id="addPageBtn" title="Add Page">+ Page</button>
@@ -1980,7 +2075,10 @@
         // otherwise runs on every renderAll, including each inspector keystroke.
         thumbCache: new Map(),
         // Session-only view preference, like propSections.
-        pageListCompact: false
+        pageListCompact: false,
+        // Two-page (spread) reading view. A display preference, not a document edit: never
+        // serialized, never dirties, and only takes effect in view mode (reading, not editing).
+        spreadView: false
       };
 
       const els = {
@@ -2062,10 +2160,12 @@
         openBook: document.getElementById('openBookBtn'),
         saveBook: document.getElementById('saveBookBtn'),
         saveBookAs: document.getElementById('saveBookAsBtn'),
+        exportPdf: document.getElementById('exportPdfBtn'),
         undo: document.getElementById('undoBtn'),
         redo: document.getElementById('redoBtn'),
-        viewMode: document.getElementById('viewModeBtn'),
-        editMode: document.getElementById('editModeBtn'),
+        editable: document.getElementById('editableBtn'),
+        layoutSingle: document.getElementById('layoutSingleBtn'),
+        layoutDual: document.getElementById('layoutDualBtn'),
         prevPage: document.getElementById('prevPageBtn'),
         nextPage: document.getElementById('nextPageBtn'),
         addPage: document.getElementById('addPageBtn'),
@@ -2368,6 +2468,23 @@
         }
         const pageOrder = app.document?.storyBook?.pageOrder || [];
         const index = pageOrder.indexOf(page.id);
+
+        // In a spread the strip names both pages and the counter shows the range. The group
+        // breadcrumb and dimensions are dropped: they are ambiguous across two pages.
+        if (isSpreadActive()) {
+          const ids = getCurrentSpreadPageIds();
+          const first = pageOrder.indexOf(ids[0]) + 1;
+          const last = pageOrder.indexOf(ids[ids.length - 1]) + 1;
+          const names = ids.map((id) => app.document.pages[id]?.name || 'Untitled page').join(' · ');
+          return {
+            group: '',
+            title: names,
+            meta: '',
+            position: ids.length > 1 ? `Pages ${first}–${last} of ${pageOrder.length}` : `Page ${first} of ${pageOrder.length}`,
+            positionDetail: ''
+          };
+        }
+
         const group = page.groupId ? (app.document?.storyBook?.groups || {})[page.groupId] : null;
 
         // The counter stays global so there is one authoritative page number. Where the page
@@ -3380,6 +3497,17 @@
         }
       }
 
+      // Read the file back after writing and confirm the bytes on disk match what was written.
+      // The round-trip check (Slice 47) proves the export is a faithful copy of the document;
+      // this proves the write itself landed intact, catching a truncated or partial write —
+      // which that check never sees, because it only inspects the in-memory export, never the
+      // disk. Runs only after close() resolves, when the new contents are readable.
+      async function writtenFileMatches(handle, expectedHtml) {
+        const file = await handle.getFile();
+        const actual = await file.text();
+        return actual === expectedHtml;
+      }
+
       function markDocumentSaved(label) {
         clearHistory();
         setDirty(false);
@@ -3476,7 +3604,23 @@
           }
           await writeHtmlToHandle(handle, html);
           app.fileHandle = handle;
-          markDocumentSaved(`Saved to ${handle.name}`);
+          // Confirm the bytes actually landed. A verification that cannot run (getFile/text
+          // throwing) is not treated as a failure — the write itself succeeded — but a genuine
+          // mismatch is, and the document is left dirty so a bad save is never reported as done.
+          let verified = null;
+          try {
+            verified = await writtenFileMatches(handle, html);
+          } catch (error) {
+            console.error(error);
+          }
+          if (verified === false) {
+            els.statusText.textContent =
+              `Saved to ${handle.name}, but the file on disk does not match what was written — save again.`;
+            return;
+          }
+          markDocumentSaved(verified === null
+            ? `Saved to ${handle.name} (could not verify the written file)`
+            : `Saved to ${handle.name}`);
         } catch (error) {
           if (error && error.name === 'AbortError') {
             els.statusText.textContent = 'Save canceled';
@@ -3670,7 +3814,7 @@
           width = 360;
           height = 220;
         }
-        return {
+        const element = {
           id: elId,
           pageId,
           type: mediaKind,
@@ -3687,11 +3831,16 @@
           altText: fileName || `Embedded ${mediaKind}`,
           fit: 'contain'
         };
+        // Playable kinds carry the same options a referenced video/audio does, so the inspector
+        // checkboxes and the rendered player agree; an embedded picture never had these.
+        if (mediaKind === 'video' || mediaKind === 'audio') {
+          element.controls = true;
+          element.autoplay = false;
+          element.loop = false;
+        }
+        return element;
       }
 
-      function makeEmbeddedImageElement(pageId, fileName, mimeType, dataUri, x, y) {
-        return makeEmbeddedMediaElement(pageId, 'image', fileName, mimeType, dataUri, x, y);
-      }
 
       function inferKindFromFileName(name) {
         const value = String(name || '').toLowerCase();
@@ -4325,6 +4474,23 @@
       function selectAllPages() {
         if (!app.document.storyBook.pageOrder.length) return;
         setPageSelection(app.document.storyBook.pageOrder.slice(), { current: app.currentPageId });
+      }
+
+      // Select every page in a chapter. `additive` (the Ctrl/Cmd+click gesture) adds them to the
+      // current selection; otherwise (the menu entry) it becomes a fresh selection. Collapse
+      // state is left untouched: selection is view state and does not change the document, so a
+      // collapsed chapter's pages are selected in place, ready to act on, and revealed on demand.
+      function selectPagesInGroup(groupId, options = {}) {
+        const group = getPageGroup(groupId);
+        if (!group || !group.pages.length) return;
+        if (options.additive) {
+          setPageSelection([...getSelectedPageIds(), ...group.pages], { current: app.currentPageId });
+        } else {
+          setPageSelection(group.pages.slice(), { current: group.pages[0] });
+        }
+        app.selectedElementId = null;
+        renderAll();
+        els.statusText.textContent = `Selected ${group.pages.length} page${group.pages.length === 1 ? '' : 's'} in ${group.name}`;
       }
 
       function getPageGroups() {
@@ -5530,7 +5696,7 @@
           addElement(makeAudioElement(page.id, src, x, y));
           return;
         }
-        if (kind === 'embedded-image') {
+        if (kind === 'embedded-media' || kind === 'embedded-image') {
           app.pendingEmbeddedInsert = { pageId: page.id, x, y };
           els.embeddedImageInput.click();
         }
@@ -5589,11 +5755,34 @@
           app.selectedElementId = null;
           app.editingElementId = null;
           app.focusSource = 'pointer';
-          els.statusText.textContent = 'View mode: editing disabled';
+          els.statusText.textContent = 'Editing off';
         } else {
           els.statusText.textContent = app.dirty ? 'Unsaved changes' : 'Saved';
         }
         renderAll();
+      }
+
+      // The UI splits into two axes: an Editable capability toggle (edit vs view) and a Single/
+      // Dual page layout. They are not independent — a dual spread is reading-only — so the
+      // invariant "editable and dual cannot both be on" is enforced from both directions here,
+      // over the internal mode/spreadView state.
+      function setEditable(on) {
+        if (on) {
+          // Turning editing on forces single: you cannot edit a two-page spread.
+          app.spreadView = false;
+          if (app.mode !== 'edit') setMode('edit'); else renderAll();
+        } else if (app.mode !== 'view') {
+          setMode('view');
+        } else {
+          renderAll();
+        }
+      }
+
+      function setPageLayout(layout) {
+        const dual = layout === 'dual';
+        app.spreadView = dual;
+        // Choosing the dual layout drops out of editing, since a spread cannot be edited.
+        if (dual && app.mode !== 'view') setMode('view'); else renderAll();
       }
 
       function setZoom(zoom) {
@@ -5631,8 +5820,16 @@
       function navigatePage(direction) {
         const pageOrder = app.document.storyBook.pageOrder;
         const currentIndex = pageOrder.indexOf(app.currentPageId);
-        const nextIndex = currentIndex + direction;
-        if (currentIndex < 0 || nextIndex < 0 || nextIndex >= pageOrder.length) return;
+        if (currentIndex < 0) return;
+        // In a spread, a page turn moves a whole spread, from the left page of the current one.
+        let nextIndex;
+        if (isSpreadActive()) {
+          const leftIdx = currentIndex - (currentIndex % 2);
+          nextIndex = leftIdx + direction * 2;
+        } else {
+          nextIndex = currentIndex + direction;
+        }
+        if (nextIndex < 0 || nextIndex >= pageOrder.length) return;
         app.currentPageId = pageOrder[nextIndex];
         app.selectedElementId = null;
         app.editingElementId = null;
@@ -5747,9 +5944,14 @@
         label.className = 'page-group-label';
         label.textContent = group.name;
         label.title = 'Double-click to rename';
-        // Single click on the label is swallowed so it cannot collapse the group out from
-        // under a double-click; collapsing stays on the twisty and the rest of the header.
-        label.addEventListener('click', (event) => event.stopPropagation());
+        // A plain click on the label is swallowed so it cannot collapse the group out from
+        // under a double-click; collapsing stays on the twisty and the rest of the header. A
+        // modifier click carries no rename meaning, so it is allowed to bubble to the header,
+        // where Ctrl/Cmd+click selects the chapter's pages — the name is the obvious target.
+        label.addEventListener('click', (event) => {
+          if (event.ctrlKey || event.metaKey) return;
+          event.stopPropagation();
+        });
         label.addEventListener('dblclick', (event) => {
           if (app.mode !== 'edit') return;
           event.preventDefault();
@@ -5765,12 +5967,28 @@
         header.appendChild(label);
         header.appendChild(count);
 
-        header.addEventListener('click', () => togglePageGroupCollapsed(group.id));
+        header.addEventListener('click', (event) => {
+          // Ctrl/Cmd+click selects the chapter's pages (adding to any existing selection),
+          // mirroring the modifier's "extend the selection" meaning on the rows. A plain click
+          // still collapses, so the two do not compete.
+          if (event.ctrlKey || event.metaKey) {
+            event.preventDefault();
+            selectPagesInGroup(group.id, { additive: true });
+            return;
+          }
+          togglePageGroupCollapsed(group.id);
+        });
         header.addEventListener('contextmenu', (event) => {
           if (app.mode !== 'edit') return;
           event.preventDefault();
           event.stopPropagation();
           showContextMenu(event.clientX, event.clientY, [
+            {
+              label: group.pages.length > 1 ? `Select ${group.pages.length} Pages` : 'Select Page',
+              disabled: !group.pages.length,
+              onSelect: () => selectPagesInGroup(group.id)
+            },
+            { separator: true },
             {
               label: 'Add Page to Chapter',
               onSelect: () => addPageToGroup(group.id)
@@ -6084,6 +6302,10 @@
                 label: many ? `Duplicate ${targets.length} Pages` : 'Duplicate Page',
                 onSelect: () => duplicatePages(targets)
               },
+              {
+                label: many ? `Export ${targets.length} Pages to PDF` : 'Export Page to PDF',
+                onSelect: () => exportPagesToPdf(targets, many ? `${targets.length} pages` : 'page')
+              },
               { separator: true },
               // One "where does this page live" family. Moving to a new chapter belongs here
               // rather than as its own concept: it is a move that creates its destination.
@@ -6197,7 +6419,7 @@
           } else if (element.type === 'image' || element.type === 'video' || element.type === 'audio') {
             const asset = element.assetId ? doc.assets[element.assetId] : null;
             if (asset?.sourceType === 'embedded') {
-              els.elementContent.value = `[embedded] ${asset.fileName || asset.mimeType || 'image'}`;
+              els.elementContent.value = `[embedded] ${asset.fileName || asset.mimeType || element.type}`;
             } else {
               els.elementContent.value = asset?.pathOrUrl || '';
             }
@@ -6336,24 +6558,244 @@
         renderAssetManager();
       }
 
+      // ---- PDF export via the browser's print dialog. The layout is rebuilt from the document
+      // rather than reusing the editing stage, so it renders at natural size (never the current
+      // zoom), carries no selection or handles, and turns media into placeholders. The code
+      // prepares everything and opens the dialog; the user picks "Save as PDF" and a filename.
+
+      // One printable element: absolutely positioned, styled to match the on-screen render, but
+      // inert. Media becomes a labelled placeholder, since a PDF cannot hold video or audio.
+      function buildPrintableElement(element) {
+        const node = document.createElement('div');
+        node.className = `element ${element.type}`;
+        applyElementFrameStyles(node, element);
+        node.style.zIndex = `${element.zIndex || 0}`;
+
+        if (element.type === 'text') {
+          const content = document.createElement('div');
+          content.className = 'content';
+          content.textContent = element.text || '';
+          const style = element.style || {};
+          content.style.fontFamily = style.fontFamily || 'Arial';
+          content.style.fontSize = `${Math.max(1, Number(style.fontSize) || 16)}px`;
+          content.style.fontWeight = `${style.fontWeight || 400}`;
+          content.style.color = style.color || '#111827';
+          content.style.lineHeight = `${style.lineHeight || 1.4}`;
+          content.style.textAlign = style.align || 'left';
+          content.style.backgroundColor = style.backgroundColor || 'transparent';
+          node.appendChild(content);
+        } else if (element.type === 'image') {
+          const asset = element.assetId ? app.document.assets[element.assetId] : null;
+          const source = asset?.dataUri || asset?.pathOrUrl;
+          if (source) {
+            const img = document.createElement('img');
+            img.alt = element.altText || 'Image';
+            img.src = source;
+            node.appendChild(img);
+          } else {
+            node.appendChild(buildPrintMediaPlaceholder('image', 'Missing image'));
+          }
+        } else if (element.type === 'video' || element.type === 'audio') {
+          const asset = element.assetId ? app.document.assets[element.assetId] : null;
+          const source = asset?.dataUri ? '(embedded)' : (asset?.pathOrUrl || 'no source');
+          node.appendChild(buildPrintMediaPlaceholder(element.type, source));
+        }
+        return node;
+      }
+
+      function buildPrintMediaPlaceholder(kind, source) {
+        const box = document.createElement('div');
+        box.className = 'print-media-placeholder';
+        const label = document.createElement('div');
+        label.className = 'print-media-kind';
+        label.textContent = kind;
+        const src = document.createElement('div');
+        src.className = 'print-media-source';
+        src.textContent = source;
+        box.appendChild(label);
+        box.appendChild(src);
+        return box;
+      }
+
+      // One printable page at its natural pixel size. The `page:` name ties it to the injected
+      // @page rule that gives the sheet the same dimensions, so mixed page sizes each print true.
+      function buildPrintablePage(page, sizeClass) {
+        const node = document.createElement('div');
+        node.className = `print-page ${sizeClass}`;
+        node.style.width = `${Math.max(1, Math.round(page.width || 1))}px`;
+        node.style.height = `${Math.max(1, Math.round(page.height || 1))}px`;
+        node.style.background = (page.background && page.background.type === 'solid'
+          ? page.background.color : '#ffffff') || '#ffffff';
+        for (const element of getPageElements(page)) {
+          node.appendChild(buildPrintableElement(element));
+        }
+        return node;
+      }
+
+      // Distinct page sizes across the export, each mapped to a stable class/name. Mixed sizes
+      // are the reason this exists: one @page rule per size lets every sheet match its page.
+      function collectPrintPageSizes(pages) {
+        const map = new Map();
+        for (const page of pages) {
+          const w = Math.max(1, Math.round(page.width || 1));
+          const h = Math.max(1, Math.round(page.height || 1));
+          const key = `${w}x${h}`;
+          if (!map.has(key)) map.set(key, { w, h, className: `print-size-${map.size}`, key });
+        }
+        return map;
+      }
+
+      function buildPrintCss(sizes) {
+        const rules = [];
+        for (const { w, h, className } of sizes.values()) {
+          // A named page carries the sheet size; margin:0 stops the engine framing and shrinking
+          // it. The matching class assigns pages of this size to that named page.
+          rules.push(`@page ${className} { size: ${w}px ${h}px; margin: 0; }`);
+          rules.push(`.${className} { page: ${className}; }`);
+        }
+        return rules.join('\n');
+      }
+
+      // Wait for every image to be ready, so print() does not fire on half-decoded pages.
+      // Reference images that never load resolve anyway (after a timeout) rather than hang the
+      // export — a book meant for PDF is best fully embedded, but a broken one still prints.
+      function waitForPrintImages(root) {
+        const imgs = Array.from(root.querySelectorAll('img'));
+        return Promise.all(imgs.map((img) => {
+          if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+          return new Promise((resolve) => {
+            let settled = false;
+            const done = () => { if (!settled) { settled = true; resolve(); } };
+            img.addEventListener('load', done, { once: true });
+            img.addEventListener('error', done, { once: true });
+            setTimeout(done, 4000);
+          });
+        }));
+      }
+
+      async function exportPagesToPdf(pageIds, label) {
+        const pages = (pageIds || [])
+          .map((id) => app.document.pages[id])
+          .filter(Boolean);
+        if (!pages.length) {
+          els.statusText.textContent = 'Nothing to export';
+          return;
+        }
+        // A stale export root from an interrupted run must not stack up.
+        removePrintArtifacts();
+
+        const sizes = collectPrintPageSizes(pages);
+        const style = document.createElement('style');
+        style.id = 'printExportStyle';
+        style.textContent = buildPrintCss(sizes);
+        document.head.appendChild(style);
+
+        const root = document.createElement('div');
+        root.className = 'print-root';
+        root.id = 'printExportRoot';
+        for (const page of pages) {
+          const size = sizes.get(`${Math.max(1, Math.round(page.width || 1))}x${Math.max(1, Math.round(page.height || 1))}`);
+          root.appendChild(buildPrintablePage(page, size.className));
+        }
+        document.body.appendChild(root);
+
+        els.statusText.textContent = `Preparing ${pages.length} page${pages.length === 1 ? '' : 's'} for PDF…`;
+        await waitForPrintImages(root);
+
+        // Cleanup runs after the dialog closes. afterprint is the reliable signal on Chromium;
+        // a timeout backstops browsers that never fire it, so the artifacts cannot leak.
+        const cleanup = () => {
+          window.removeEventListener('afterprint', cleanup);
+          removePrintArtifacts();
+          els.statusText.textContent = `Exported ${label || 'book'} to PDF`;
+        };
+        window.addEventListener('afterprint', cleanup);
+        setTimeout(() => { if (document.getElementById('printExportRoot')) cleanup(); }, 60000);
+
+        window.print();
+      }
+
+      function removePrintArtifacts() {
+        const root = document.getElementById('printExportRoot');
+        if (root) root.remove();
+        const style = document.getElementById('printExportStyle');
+        if (style) style.remove();
+      }
+
+      function exportBookToPdf() {
+        exportPagesToPdf(app.document.storyBook.pageOrder.slice(), 'book');
+      }
+
+      function exportSelectedPagesToPdf() {
+        const ids = getActionPageIds();
+        exportPagesToPdf(ids, ids.length === 1 ? 'page' : `${ids.length} pages`);
+      }
+
+      // Gutter, in unscaled page px, between the two pages of a spread.
+      const SPREAD_GAP = 24;
+
+      // The two-page reading view is a view-mode-only display preference, so editing is always
+      // single-page and never has to answer "which of the two pages is current".
+      function isSpreadActive() {
+        return app.mode === 'view' && app.spreadView;
+      }
+
+      // Flat pairing by pageOrder position: [0,1], [2,3], … The left page of a spread sits at an
+      // even index; the current page may be either member and resolves to the same spread. (A
+      // book-accurate "cover alone, then 2–3" pairing would be a one-line offset here.)
+      function getCurrentSpreadPageIds() {
+        const order = app.document.storyBook.pageOrder;
+        const idx = order.indexOf(app.currentPageId);
+        if (idx < 0) return app.currentPageId ? [app.currentPageId] : [];
+        const leftIdx = idx - (idx % 2);
+        return [order[leftIdx], order[leftIdx + 1]].filter(Boolean);
+      }
+
+      // The page(s) the stage shows: a spread when reading with two-page view on, otherwise the
+      // single current page. Editing always yields one page.
+      function getStagePages() {
+        if (isSpreadActive()) {
+          const pages = getCurrentSpreadPageIds().map((id) => app.document.pages[id]).filter(Boolean);
+          if (pages.length) return pages;
+        }
+        const current = getCurrentPage();
+        return current ? [current] : [];
+      }
+
       function renderStage() {
-        const page = getCurrentPage();
         els.stage.innerHTML = '';
-        if (!page) return;
+        const pages = getStagePages();
+        if (!pages.length) return;
 
-        const stageScale = app.zoom;
-        els.stage.style.width = `${page.width * stageScale}px`;
-        els.stage.style.height = `${page.height * stageScale}px`;
+        const scale = app.zoom;
+        const gap = pages.length > 1 ? SPREAD_GAP : 0;
+        const totalWidth = pages.reduce((sum, p) => sum + (p.width || 1), 0) + gap * (pages.length - 1);
+        const maxHeight = Math.max(...pages.map((p) => p.height || 1));
+        els.stage.style.width = `${totalWidth * scale}px`;
+        els.stage.style.height = `${maxHeight * scale}px`;
 
+        let offsetX = 0;
+        for (const page of pages) {
+          const pageEl = buildStagePage(page);
+          pageEl.style.transform = `scale(${scale})`;
+          pageEl.style.transformOrigin = 'top left';
+          pageEl.style.position = 'absolute';
+          pageEl.style.left = `${offsetX * scale}px`;
+          // Pages of differing height in a spread are centred against the taller one.
+          pageEl.style.top = `${((maxHeight - (page.height || 1)) / 2) * scale}px`;
+          els.stage.appendChild(pageEl);
+          offsetX += (page.width || 1) + gap;
+        }
+      }
+
+      // Builds one interactive page node (edit handlers attach only in edit mode, so spread
+      // pages, which are view-only, come out inert). Positioning and scaling are the caller's
+      // job, so the same builder serves a single page and each page of a spread.
+      function buildStagePage(page) {
         const pageEl = document.createElement('div');
         pageEl.className = 'page';
         pageEl.style.width = `${page.width}px`;
         pageEl.style.height = `${page.height}px`;
-        pageEl.style.transform = `scale(${stageScale})`;
-        pageEl.style.transformOrigin = 'top left';
-        pageEl.style.position = 'absolute';
-        pageEl.style.left = '0';
-        pageEl.style.top = '0';
 
         const surface = document.createElement('div');
         surface.className = 'page-surface';
@@ -6583,11 +7025,11 @@
             { label: 'Add Image URL', onSelect: () => addElementFromCanvas('image', point.x, point.y) },
             { label: 'Add Video URL', onSelect: () => addElementFromCanvas('video', point.x, point.y) },
             { label: 'Add Audio URL', onSelect: () => addElementFromCanvas('audio', point.x, point.y) },
-            { label: 'Add Embedded Image', onSelect: () => addElementFromCanvas('embedded-image', point.x, point.y) }
+            { label: 'Embed File (image, video or audio)', onSelect: () => addElementFromCanvas('embedded-media', point.x, point.y) }
           ]);
         });
 
-        els.stage.appendChild(pageEl);
+        return pageEl;
       }
 
       function renderAll() {
@@ -6595,8 +7037,11 @@
         renderStage();
         renderInspector();
         updateStatus();
-        buttons.viewMode.classList.toggle('active', app.mode === 'view');
-        buttons.editMode.classList.toggle('active', app.mode === 'edit');
+        const editable = app.mode === 'edit';
+        if (buttons.editable) {
+          buttons.editable.classList.toggle('active', editable);
+          buttons.editable.setAttribute('aria-pressed', editable ? 'true' : 'false');
+        }
         const pageOrder = app.document.storyBook.pageOrder;
         const pageIndex = getCurrentPage() ? pageOrder.indexOf(getCurrentPage().id) : -1;
         const isEdit = app.mode === 'edit';
@@ -6604,8 +7049,24 @@
         if (appRootEl) appRootEl.classList.toggle('mode-view', !isEdit);
         buttons.undo.disabled = !isEdit || !app.history.undoStack.length;
         buttons.redo.disabled = !isEdit || !app.history.redoStack.length;
-        buttons.prevPage.disabled = pageIndex <= 0;
-        buttons.nextPage.disabled = pageIndex < 0 || pageIndex >= pageOrder.length - 1;
+        // In a spread the buttons turn whole spreads, so they disable at the first/last spread.
+        if (isSpreadActive() && pageIndex >= 0) {
+          const leftIdx = pageIndex - (pageIndex % 2);
+          buttons.prevPage.disabled = leftIdx <= 0;
+          buttons.nextPage.disabled = leftIdx + 2 >= pageOrder.length;
+        } else {
+          buttons.prevPage.disabled = pageIndex <= 0;
+          buttons.nextPage.disabled = pageIndex < 0 || pageIndex >= pageOrder.length - 1;
+        }
+        // Single / Dual is a segmented control: exactly one is active. Dual reflects an active
+        // spread; single covers everything else (including edit, which is always one page).
+        if (buttons.layoutSingle && buttons.layoutDual) {
+          const dual = isSpreadActive();
+          buttons.layoutSingle.classList.toggle('active', !dual);
+          buttons.layoutSingle.setAttribute('aria-pressed', dual ? 'false' : 'true');
+          buttons.layoutDual.classList.toggle('active', dual);
+          buttons.layoutDual.setAttribute('aria-pressed', dual ? 'true' : 'false');
+        }
         buttons.addPage.disabled = !isEdit;
         if (buttons.newGroup) buttons.newGroup.disabled = !isEdit || !getCurrentPage();
         // Page actions read the selection, which always holds at least the current page. The
@@ -6914,9 +7375,19 @@
         reader.readAsText(file);
       }
 
-      function handleEmbeddedImageFile(file) {
+      // Embeds any supported media file, typing the element from the file rather than assuming
+      // an image. The picker was image-only, so choosing a video through it produced an
+      // image-typed element pointing at video bytes — a broken <img> the inspector labelled
+      // "Image", which is the confusion this fixes.
+      function handleEmbeddedMediaFile(file) {
         const page = getCurrentPage();
         if (!page || app.mode !== 'edit') return;
+        const kind = inferKindFromFile(file);
+        if (!kind) {
+          app.pendingEmbeddedInsert = null;
+          alert('Unsupported file type. Embed an image, video, or audio file.');
+          return;
+        }
         const pending = app.pendingEmbeddedInsert && app.pendingEmbeddedInsert.pageId === page.id
           ? app.pendingEmbeddedInsert
           : null;
@@ -6925,11 +7396,12 @@
         reader.onload = () => {
           const dataUri = String(reader.result || '');
           if (!dataUri) {
-            alert('Unable to read the selected image.');
+            alert('Unable to read the selected file.');
             return;
           }
-          const el = makeEmbeddedImageElement(
+          const el = makeEmbeddedMediaElement(
             page.id,
+            kind,
             file.name,
             file.type,
             dataUri,
@@ -6951,10 +7423,20 @@
       if (buttons.saveBookAs) {
         buttons.saveBookAs.addEventListener('click', () => { void saveBook({ forcePicker: true }); });
       }
+      if (buttons.exportPdf) {
+        buttons.exportPdf.addEventListener('click', () => { void exportBookToPdf(); });
+      }
       buttons.undo.addEventListener('click', () => undoHistory());
       buttons.redo.addEventListener('click', () => redoHistory());
-      buttons.viewMode.addEventListener('click', () => setMode('view'));
-      buttons.editMode.addEventListener('click', () => setMode('edit'));
+      if (buttons.editable) {
+        buttons.editable.addEventListener('click', () => setEditable(app.mode !== 'edit'));
+      }
+      if (buttons.layoutSingle) {
+        buttons.layoutSingle.addEventListener('click', () => setPageLayout('single'));
+      }
+      if (buttons.layoutDual) {
+        buttons.layoutDual.addEventListener('click', () => setPageLayout('dual'));
+      }
       buttons.prevPage.addEventListener('click', () => navigatePage(-1));
       buttons.nextPage.addEventListener('click', () => navigatePage(1));
       buttons.addPage.addEventListener('click', () => createPage());
@@ -7098,7 +7580,7 @@
 
       els.embeddedImageInput.addEventListener('change', (event) => {
         const file = event.target.files && event.target.files[0];
-        if (file) handleEmbeddedImageFile(file);
+        if (file) handleEmbeddedMediaFile(file);
         event.target.value = '';
       });
 
@@ -7172,7 +7654,7 @@
           { label: 'Add Image URL', onSelect: () => addElementFromCanvas('image', point.x, point.y) },
           { label: 'Add Video URL', onSelect: () => addElementFromCanvas('video', point.x, point.y) },
           { label: 'Add Audio URL', onSelect: () => addElementFromCanvas('audio', point.x, point.y) },
-          { label: 'Add Embedded Image', onSelect: () => addElementFromCanvas('embedded-image', point.x, point.y) }
+          { label: 'Embed File (image, video or audio)', onSelect: () => addElementFromCanvas('embedded-media', point.x, point.y) }
         ]);
       });
 
